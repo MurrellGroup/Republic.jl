@@ -285,3 +285,28 @@ end
     @test XR5.Z3 == 3
     @test XR5.Z4 == 4
 end
+
+# reexport=true with bare import Module as Alias (single-element path)
+module XR6
+    using Republic
+    @republic reexport=true import Test as T
+end
+@testset "reexport=true: bare import as Alias → exported" begin
+    @test :T in exported_set(XR6)
+end
+
+# Double-dot relative path (..Module)
+module Outer
+    module Inner
+        const X = 1
+        export X
+    end
+    module Mid
+        using Republic
+        @republic using ...Outer.Inner: X
+    end
+end
+@testset "double-dot relative path" begin
+    @test :X in public_set(Outer.Mid)
+    @test Outer.Mid.X == 1
+end
