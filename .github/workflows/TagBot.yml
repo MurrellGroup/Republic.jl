@@ -14,16 +14,23 @@ jobs:
           fetch-depth: 0
       - name: Create releases
         run: |
-          # Get package info from registry
           REPO="${{ github.repository }}"
           REGISTRY="MurrellGroup/MurrellGroupRegistry"
           PKG_NAME=$(basename "$REPO" .jl)
 
-          # Find package in registry and get all registered versions
-          VERSIONS_TOML=$(gh api "repos/$REGISTRY/contents/$( \
-            gh api "repos/$REGISTRY/contents/Registry.toml" --jq '.content' | \
-            base64 -d | grep -A1 "\"$PKG_NAME\"" | grep path | sed 's/.*= "\(.*\)"/\1/' \
-          )/Versions.toml" --jq '.content' | base64 -d)
+          # Get Registry.toml and extract the path for this package
+          PKG_PATH=$(gh api "repos/$REGISTRY/contents/Registry.toml" --jq '.content' | \
+            base64 -d | grep "name = \"$PKG_NAME\"" | sed 's/.*path = "\([^"]*\)".*/\1/')
+
+          if [ -z "$PKG_PATH" ]; then
+            echo "Package $PKG_NAME not found in registry"
+            exit 0
+          fi
+
+          echo "Found package at $PKG_PATH"
+
+          # Get Versions.toml for this package
+          VERSIONS_TOML=$(gh api "repos/$REGISTRY/contents/$PKG_PATH/Versions.toml" --jq '.content' | base64 -d)
 
           # Create releases for any version that doesn't have one yet
           for VERSION in $(echo "$VERSIONS_TOML" | grep '^\[' | tr -d '[]"'); do
@@ -31,6 +38,8 @@ jobs:
             if ! gh release view "$TAG" --repo "$REPO" &>/dev/null; then
               echo "Creating release $TAG"
               gh release create "$TAG" --repo "$REPO" --generate-notes || true
+            else
+              echo "Release $TAG already exists"
             fi
           done
         env:
