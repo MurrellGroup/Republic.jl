@@ -9,20 +9,29 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || github.actor == 'JuliaTagBot' || github.actor == 'AntonOresten'
     runs-on: ubuntu-latest
     steps:
-      - name: Debug token
-        run: |
-          curl -s -o /dev/null -w "Status: %{http_code}\nScopes: %{header.x-oauth-scopes}\n" \
-            -H "Authorization: token $TOKEN" \
-            -X POST https://api.github.com/repos/MurrellGroup/Republic.jl/releases \
-            -d '{"tag_name":"v0.0.1-debug","name":"debug","body":"debug"}'
-        env:
-          TOKEN: ${{ secrets.TAGBOT_PAT }}
-      - uses: JuliaRegistries/TagBot@v1
+      - uses: actions/checkout@v4
         with:
-          token: ${{ secrets.TAGBOT_PAT }}
-          # For commits that modify workflow files: SSH key enables tagging, but
-          # releases require manual creation. For full automation of such commits,
-          # use a PAT with `workflow` scope instead of GITHUB_TOKEN.
-          # See: https://github.com/JuliaRegistries/TagBot#commits-that-modify-workflow-files
-          ssh: ${{ secrets.DOCUMENTER_KEY }}
-          registry: MurrellGroup/MurrellGroupRegistry
+          fetch-depth: 0
+      - name: Create releases
+        run: |
+          # Get package info from registry
+          REPO="${{ github.repository }}"
+          REGISTRY="MurrellGroup/MurrellGroupRegistry"
+          PKG_NAME=$(basename "$REPO" .jl)
+
+          # Find package in registry and get all registered versions
+          VERSIONS_TOML=$(gh api "repos/$REGISTRY/contents/$( \
+            gh api "repos/$REGISTRY/contents/Registry.toml" --jq '.content' | \
+            base64 -d | grep -A1 "\"$PKG_NAME\"" | grep path | sed 's/.*= "\(.*\)"/\1/' \
+          )/Versions.toml" --jq '.content' | base64 -d)
+
+          # Create releases for any version that doesn't have one yet
+          for VERSION in $(echo "$VERSIONS_TOML" | grep '^\[' | tr -d '[]"'); do
+            TAG="v$VERSION"
+            if ! gh release view "$TAG" --repo "$REPO" &>/dev/null; then
+              echo "Creating release $TAG"
+              gh release create "$TAG" --repo "$REPO" --generate-notes || true
+            fi
+          done
+        env:
+          GH_TOKEN: ${{ secrets.TAGBOT_PAT }}
