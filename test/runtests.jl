@@ -82,6 +82,24 @@ end
     @test X4.Z6 == 6
 end
 
+# Colon-qualified where module is NOT a binding in the current module
+# (mimics `@republic using SomePackage: name` in a real package)
+module _Wrapper
+    module Hidden
+        const H = 42
+        export H
+    end
+end
+module X4b
+    using Republic
+    # _Wrapper.Hidden is not a binding in X4b — only H is brought in
+    @republic using Main._Wrapper.Hidden: H
+end
+@testset "default: colon-qualified, module not in scope" begin
+    @test :H in public_set(X4b)
+    @test X4b.H == 42
+end
+
 # Import dot-qualified
 module Y6
     const Z7 = 7

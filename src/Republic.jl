@@ -126,8 +126,8 @@ function resolve_module(m::Module, parts)
             idx += 1
         end
     else
-        # Absolute: resolve first symbol in caller's context
-        mod = Core.eval(m, parts[1])
+        # Absolute: find loaded root module by name
+        mod = Base.root_module(m, parts[1])
         idx = 2
     end
     for i in idx:length(parts)
