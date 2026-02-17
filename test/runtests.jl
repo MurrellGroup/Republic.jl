@@ -328,3 +328,22 @@ end
     @test :X in public_set(Outer.Mid)
     @test Outer.Mid.X == 1
 end
+
+# export after @republic should not error
+module Y_export_after
+    const A = 1
+    const B = 2
+    export A
+    public B
+end
+module X_export_before
+    using Republic
+    export A  # declare export before @republic — @republic will skip `public` for A
+    @republic using Main.Y_export_after
+end
+@testset "export before @republic is respected" begin
+    @test :A in exported_set(X_export_before)
+    @test :B in public_set(X_export_before)
+    @test X_export_before.A == 1
+    @test X_export_before.B == 2
+end

@@ -136,6 +136,12 @@ function resolve_module(m::Module, parts)
     return mod
 end
 
+function _mark_public(eval, m::Module, names::Vector{Symbol})
+    # Filter out names already exported in m — Julia errors on public-after-export
+    filter!(n -> !Base.isexported(m, n), names)
+    isempty(names) || eval(m, Expr(:public, names...))
+end
+
 function republish_names(eval, m::Module, upstream::Module, reexport::Bool)
     exported = Symbol[]
     public_only = Symbol[]
@@ -149,13 +155,13 @@ function republish_names(eval, m::Module, upstream::Module, reexport::Bool)
     if reexport
         isempty(exported) || eval(m, Expr(:export, exported...))
     else
-        isempty(exported) || eval(m, Expr(:public, exported...))
+        _mark_public(eval, m, exported)
     end
     # Import public-only names so they're actual bindings, then mark public
     for name in public_only
         eval(m, Expr(:import, Expr(:., fullname(upstream)..., name)))
     end
-    isempty(public_only) || eval(m, Expr(:public, public_only...))
+    _mark_public(eval, m, public_only)
     nothing
 end
 
@@ -172,7 +178,7 @@ function republish_symbols(eval, m::Module, upstream::Module,
         end
     end
     isempty(exported) || eval(m, Expr(:export, exported...))
-    isempty(public_only) || eval(m, Expr(:public, public_only...))
+    _mark_public(eval, m, public_only)
     nothing
 end
 
