@@ -33,14 +33,26 @@ jobs:
           VERSIONS_TOML=$(gh api "repos/$REGISTRY/contents/$PKG_PATH/Versions.toml" --jq '.content' | base64 -d)
 
           # Create releases for any version that doesn't have one yet
-          for VERSION in $(echo "$VERSIONS_TOML" | grep '^\[' | tr -d '[]"'); do
+          echo "$VERSIONS_TOML" | grep -E '^\[|git-tree-sha1' | paste - - | while read -r line; do
+            VERSION=$(echo "$line" | sed 's/.*\["\(.*\)"\].*/\1/')
+            TREE_SHA=$(echo "$line" | sed 's/.*git-tree-sha1 = "\(.*\)".*/\1/')
             TAG="v$VERSION"
-            if ! gh release view "$TAG" --repo "$REPO" &>/dev/null; then
-              echo "Creating release $TAG"
-              gh release create "$TAG" --repo "$REPO" --generate-notes || true
-            else
+
+            if gh release view "$TAG" --repo "$REPO" &>/dev/null; then
               echo "Release $TAG already exists"
+              continue
             fi
+
+            # Find the commit whose tree matches the registered tree hash
+            COMMIT=$(git log --all --format='%H %T' | grep "$TREE_SHA" | head -1 | cut -d' ' -f1)
+
+            if [ -z "$COMMIT" ]; then
+              echo "WARNING: Could not find commit for $TAG (tree $TREE_SHA)"
+              continue
+            fi
+
+            echo "Creating release $TAG at commit $COMMIT"
+            gh release create "$TAG" --target "$COMMIT" --repo "$REPO" --generate-notes || true
           done
         env:
           GH_TOKEN: ${{ secrets.TAGBOT_PAT }}
