@@ -329,7 +329,23 @@ end
     @test Outer.Mid.X == 1
 end
 
-# export after @republic should not error
+# import semantics preserved (method extension works)
+module Y_import_sem
+    g() = :original
+    export g
+end
+module X_import_sem
+    using Republic
+    @republic import Main.Y_import_sem: g
+    g(x::Int) = :extended  # method extension — only works with import
+end
+@testset "import allows method extension" begin
+    @test X_import_sem.g() == :original
+    @test X_import_sem.g(1) == :extended
+    @test Main.Y_import_sem.g(1) == :extended  # same function was extended
+end
+
+# export before @republic is respected
 module Y_export_after
     const A = 1
     const B = 2
@@ -346,4 +362,23 @@ end
     @test :B in public_set(X_export_before)
     @test X_export_before.A == 1
     @test X_export_before.B == 2
+end
+
+# public before @republic reexport=true is respected
+module Y_public_before
+    const C = 3
+    const D = 4
+    export C, D
+end
+module X_public_before
+    using Republic
+    public C  # declare public before @republic — @republic will skip `export` for C
+    @republic reexport=true using Main.Y_public_before
+end
+@testset "public before @republic reexport=true is respected" begin
+    @test :C in public_set(X_public_before)
+    @test !Base.isexported(X_public_before, :C)  # stayed public, not promoted to export
+    @test :D in exported_set(X_public_before)
+    @test X_public_before.C == 3
+    @test X_public_before.D == 4
 end

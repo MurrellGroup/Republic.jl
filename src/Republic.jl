@@ -52,6 +52,8 @@ function republic(m::Module, reexport::Bool, ex::Expr)
     _republish = GlobalRef(@__MODULE__, :republish_names)
     _republish_syms = GlobalRef(@__MODULE__, :republish_symbols)
     _resolve = GlobalRef(@__MODULE__, :resolve_module)
+    _mark_pub = GlobalRef(@__MODULE__, :_mark_public)
+    _mark_exp = GlobalRef(@__MODULE__, :_mark_exported)
 
     if ex.head === :module
         modules = Any[ex.args[2]]
@@ -78,8 +80,8 @@ function republic(m::Module, reexport::Bool, ex::Expr)
             path_parts = path.args[1:end-1]
             if isempty(path_parts)
                 # `import Foo as Bar` — module import
-                visibility = reexport ? :export : :public
-                push!(out.args, :($eval($m, Expr($(QuoteNode(visibility)), $(QuoteNode(local_name))))))
+                _mark = reexport ? _mark_exp : _mark_pub
+                push!(out.args, :($_mark($eval, $m, [$(QuoteNode(local_name))])))
             else
                 push!(out.args,
                     :($_republish_syms($eval, $m, $_resolve($m, $(QuoteNode(path_parts))),
@@ -142,6 +144,12 @@ function _mark_public(eval, m::Module, names::Vector{Symbol})
     isempty(names) || eval(m, Expr(:public, names...))
 end
 
+function _mark_exported(eval, m::Module, names::Vector{Symbol})
+    # Filter out names already public (not exported) in m — Julia errors on export-after-public
+    filter!(n -> !Base.ispublic(m, n) || Base.isexported(m, n), names)
+    isempty(names) || eval(m, Expr(:export, names...))
+end
+
 function republish_names(eval, m::Module, upstream::Module, reexport::Bool)
     exported = Symbol[]
     public_only = Symbol[]
@@ -153,7 +161,7 @@ function republish_names(eval, m::Module, upstream::Module, reexport::Bool)
         end
     end
     if reexport
-        isempty(exported) || eval(m, Expr(:export, exported...))
+        _mark_exported(eval, m, exported)
     else
         _mark_public(eval, m, exported)
     end
@@ -177,7 +185,7 @@ function republish_symbols(eval, m::Module, upstream::Module,
             push!(public_only, local_name)
         end
     end
-    isempty(exported) || eval(m, Expr(:export, exported...))
+    _mark_exported(eval, m, exported)
     _mark_public(eval, m, public_only)
     nothing
 end

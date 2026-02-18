@@ -40,7 +40,30 @@ By default, `@republic` makes everything public. To also re-export names that we
 @republic reexport=true using Foo
 ```
 
-With `reexport=true`, exported names are re-exported (like Reexport.jl), and public-only names are imported and marked public.
+With `reexport=true`, exported names are re-exported (like Reexport.jl), and public-only names are marked public. Republic never promotes a public-only name to exported — that is a deliberate choice left to the user (see below).
+
+## Overriding visibility
+
+Julia does not allow a name to be marked with both `public` and `export`. This only matters if a name is `public` upstream but you want to `export` it in your module — names that are already `export`ed upstream can be handled with `reexport=true`. To export a public-only name, declare the `export` *before* `@republic`:
+
+```julia
+module MyPackage
+    using Republic
+    export bar            # bar will be exported, not just public
+    @republic using Foo   # skips `public` for bar since it's already exported
+end
+```
+
+Alternatively, use qualified imports to keep `@republic` and `export` separate:
+
+```julia
+module MyPackage
+    using Republic
+    using Foo: bar
+    export bar
+    @republic using Foo: baz, qux  # only these become public
+end
+```
 
 ## Acknowledgments
 
