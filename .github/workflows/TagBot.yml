@@ -4,55 +4,28 @@ on:
     types:
       - created
   workflow_dispatch:
+    inputs:
+      lookback:
+        default: "3"
+permissions:
+  actions: read
+  checks: read
+  contents: write
+  deployments: read
+  issues: read
+  discussions: read
+  packages: read
+  pages: read
+  pull-requests: read
+  repository-projects: read
+  security-events: read
+  statuses: read
 jobs:
   TagBot:
-    if: github.event_name == 'workflow_dispatch' || github.actor == 'JuliaTagBot' || github.actor == 'AntonOresten'
+    if: github.event_name == 'workflow_dispatch' || github.actor == 'JuliaTagBot'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: JuliaRegistries/TagBot@v1
         with:
-          fetch-depth: 0
-      - name: Create releases
-        run: |
-          REPO="${{ github.repository }}"
-          REGISTRY="MurrellGroup/MurrellGroupRegistry"
-          PKG_NAME=$(basename "$REPO" .jl)
-
-          # Get Registry.toml and extract the path for this package
-          PKG_PATH=$(gh api "repos/$REGISTRY/contents/Registry.toml" --jq '.content' | \
-            base64 -d | grep "name = \"$PKG_NAME\"" | sed 's/.*path = "\([^"]*\)".*/\1/')
-
-          if [ -z "$PKG_PATH" ]; then
-            echo "Package $PKG_NAME not found in registry"
-            exit 0
-          fi
-
-          echo "Found package at $PKG_PATH"
-
-          # Get Versions.toml for this package
-          VERSIONS_TOML=$(gh api "repos/$REGISTRY/contents/$PKG_PATH/Versions.toml" --jq '.content' | base64 -d)
-
-          # Create releases for any version that doesn't have one yet
-          echo "$VERSIONS_TOML" | grep -E '^\[|git-tree-sha1' | paste - - | while read -r line; do
-            VERSION=$(echo "$line" | sed 's/.*\["\(.*\)"\].*/\1/')
-            TREE_SHA=$(echo "$line" | sed 's/.*git-tree-sha1 = "\(.*\)".*/\1/')
-            TAG="v$VERSION"
-
-            if gh release view "$TAG" --repo "$REPO" &>/dev/null; then
-              echo "Release $TAG already exists"
-              continue
-            fi
-
-            # Find the commit whose tree matches the registered tree hash
-            COMMIT=$(git log --all --format='%H %T' | grep "$TREE_SHA" | head -1 | cut -d' ' -f1)
-
-            if [ -z "$COMMIT" ]; then
-              echo "WARNING: Could not find commit for $TAG (tree $TREE_SHA)"
-              continue
-            fi
-
-            echo "Creating release $TAG at commit $COMMIT"
-            gh release create "$TAG" --target "$COMMIT" --repo "$REPO" --generate-notes || true
-          done
-        env:
-          GH_TOKEN: ${{ secrets.TAGBOT_PAT }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          ssh: ${{ secrets.DOCUMENTER_KEY }}
