@@ -13,13 +13,17 @@ Republic.jl re-publicizes names from upstream modules, making them part of your 
 module MyPackage
     using Republic
 
-    # All of Foo's public and exported names become `public` in MyPackage
+    # All of Foo's public and exported names become public in MyPackage.
+    # Unlike plain `using Foo`, this also brings in public (non-exported) names
     @republic using Foo
 
-    # Specific names
+    # Like above, but names are imported (allowing method extension)
+    @republic import Bar
+
+    # Qualified to avoid clutter
     @republic using Foo: bar, baz
 
-    # Aliases: F becomes public in MyPackage
+    # The alias `F` becomes public in `MyPackage`
     @republic using Foo: Foo as F
 
     # Blocks
@@ -30,7 +34,9 @@ module MyPackage
 end
 ```
 
-Names marked public are accessible via qualified access (`MyPackage.bar`) without being brought into scope by `using MyPackage`. This is useful for packages that want to expose a broad API surface without polluting the caller's namespace.
+Names re-publicized in `MyPackage` become accessible via qualified access (`MyPackage.bar`) without being brought into scope by `using MyPackage`. This is useful for packages that want to conveniently expose a broad API surface from different packages without polluting the caller's namespace.
+
+The main use case for re-publicizing is lightweight "Core" or "Base" packages — like [StaticArraysCore](https://github.com/JuliaArrays/StaticArraysCore.jl/), [EnzymeCore](https://github.com/EnzymeAD/Enzyme.jl/tree/main/lib/EnzymeCore), and [ManifoldsBase](https://github.com/JuliaManifolds/ManifoldsBase.jl) — whose types and functions you want to surface as part of your package's API. This also works for heavier packages whose interfaces you may be implementing, but make sure to `@republic` a qualified import to avoid clutter!
 
 ## Re-exporting
 
@@ -44,7 +50,7 @@ With `reexport=true`, exported names are re-exported (like Reexport.jl), and pub
 
 ## Overriding visibility
 
-Julia does not allow a name to be marked with both `public` and `export`. This only matters if a name is `public` upstream but you want to `export` it in your module — names that are already `export`ed upstream can be handled with `reexport=true`. To export a public-only name, declare the `export` *before* `@republic`:
+Julia does not allow a name to be marked with both `public` and `export`. This only matters if a name is public upstream but you want to export it in your module. To export a public-only name, declare the `export` *before* `@republic`:
 
 ```julia
 module MyPackage
