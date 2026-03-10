@@ -313,6 +313,22 @@ end
     @test :T in exported_set(XR6)
 end
 
+# Using Base and Core directly (not package-managed modules)
+module X_base
+    using Republic
+    @republic using Base: IdSet
+end
+module X_core
+    using Republic
+    @republic using Core: Int32
+end
+@testset "using Base/Core modules" begin
+    @test :IdSet in public_set(X_base)
+    @test X_base.IdSet === Base.IdSet
+    @test :Int32 in public_set(X_core)
+    @test X_core.Int32 === Core.Int32
+end
+
 # Double-dot relative path (..Module)
 module Outer
     module Inner

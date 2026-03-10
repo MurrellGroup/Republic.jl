@@ -129,13 +129,21 @@ function resolve_module(m::Module, parts)
         end
     else
         # Absolute: find loaded root module by name
-        mod = Base.root_module(m, parts[1])
+        mod = _resolve_root(m, parts[1])
         idx = 2
     end
     for i in idx:length(parts)
         mod = getfield(mod, parts[i])
     end
     return mod
+end
+
+function _resolve_root(m::Module, name::Symbol)
+    # Base and Core are always available but aren't packages, so
+    # Base.root_module can't find them from all module contexts.
+    name === :Base && return Base
+    name === :Core && return Core
+    return Base.root_module(m, name)
 end
 
 function _mark_public(eval, m::Module, names::Vector{Symbol})
