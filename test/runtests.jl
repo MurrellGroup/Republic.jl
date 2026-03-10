@@ -100,6 +100,27 @@ end
     @test X4b.H == 42
 end
 
+# Colon-qualified: explicit names are always republished (even if private upstream,
+# since pre-1.11 packages may not have `public` declarations for documented API)
+module Y_priv
+    const A = 1
+    const B = 2
+    const _C = 3
+    export A
+    public B
+    # _C is private
+end
+module X_priv
+    using Republic
+    @republic using Main.Y_priv: A, B, _C
+end
+@testset "colon-qualified: mirrors upstream visibility" begin
+    @test :A in public_set(X_priv)
+    @test :B in public_set(X_priv)
+    @test !Base.ispublic(X_priv, :_C)  # private upstream → not made public
+    @test X_priv._C == 3               # but still imported
+end
+
 # Import dot-qualified
 module Y6
     const Z7 = 7
@@ -175,19 +196,22 @@ end
     @test X_as.Alias_P == 2
 end
 
-# import Module as Alias
-module Y_mod_as
-    const Q = 1
-    export Q
+# import Module as Alias (dotted path — upstream visibility matters)
+module Y_mod_as_wrap
+    module Y_mod_as
+        const Q = 1
+        export Q
+    end
+    public Y_mod_as
 end
 module X_mod_as
     using Republic
-    @republic import Main.Y_mod_as as YMA
+    @republic import Main.Y_mod_as_wrap.Y_mod_as as YMA
 end
 @testset "default: import Module as Alias → public" begin
     @test :YMA in public_set(X_mod_as)
     @test !Base.isexported(X_mod_as, :YMA)
-    @test X_mod_as.YMA === Y_mod_as
+    @test X_mod_as.YMA === Y_mod_as_wrap.Y_mod_as
 end
 
 # import dot-qualified with alias

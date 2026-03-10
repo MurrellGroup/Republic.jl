@@ -189,7 +189,7 @@ function republish_symbols(eval, m::Module, upstream::Module,
     for (orig, local_name) in zip(orig_names, local_names)
         if reexport && Base.isexported(upstream, orig)
             push!(exported, local_name)
-        else
+        elseif Base.ispublic(upstream, orig)
             push!(public_only, local_name)
         end
     end
