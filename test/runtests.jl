@@ -385,6 +385,38 @@ end
     @test Main.Y_import_sem.g(1) == :extended  # same function was extended
 end
 
+# using does NOT allow method extension (regression test)
+module Y_using_no_ext
+    f() = :original
+    export f
+end
+module X_using_no_ext
+    using Republic
+    @republic using Main.Y_using_no_ext
+end
+@testset "using does not allow method extension" begin
+    @test :f in public_set(X_using_no_ext)
+    # f should not be extendable — defining f(::Int) should create a NEW function in X, not extend Y's
+    Core.eval(X_using_no_ext, :(f(x::Int) = :new))
+    @test X_using_no_ext.f(1) == :new                # new function in X
+    @test Main.Y_using_no_ext.f !== X_using_no_ext.f  # different functions
+end
+
+# using with public-only names does NOT allow method extension
+module Y_using_pub_no_ext
+    g() = :original
+    public g
+end
+module X_using_pub_no_ext
+    using Republic
+    @republic using Main.Y_using_pub_no_ext
+end
+@testset "using public-only names does not allow method extension" begin
+    @test :g in public_set(X_using_pub_no_ext)
+    # g was brought in via `using`, so extending it should error
+    @test_throws "must be explicitly imported to be extended" Core.eval(X_using_pub_no_ext, :(g(x::Int) = :new))
+end
+
 # export before @republic is respected
 module Y_export_after
     const A = 1

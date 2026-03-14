@@ -175,7 +175,7 @@ function republish_names(eval, m::Module, upstream::Module, reexport::Bool)
     end
     # Import public-only names so they're actual bindings, then mark public
     for name in public_only
-        eval(m, Expr(:import, Expr(:., fullname(upstream)..., name)))
+        eval(m, Expr(:using, Expr(:(:), Expr(:., fullname(upstream)...), Expr(:., name))))
     end
     _mark_public(eval, m, public_only)
     nothing
