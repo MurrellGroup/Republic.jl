@@ -17,14 +17,17 @@ module MyPackage
     # Unlike plain `using Foo`, this also brings in public (non-exported) names
     @republic using Foo
 
-    # Like above, but names are imported (allowing method extension)
-    @republic import Bar
-
     # Qualified to avoid clutter
     @republic using Foo: bar, baz
 
     # The alias `F` becomes public in `MyPackage`
     @republic using Foo: Foo as F
+
+    # Only `Bar` gets imported and marked public
+    @republic import Bar
+
+    # `baz` can be extended within MyPackage, and is marked public
+    @republic import Bar: baz
 
     # Blocks
     @republic begin
