@@ -58,7 +58,6 @@ Re-exports exported names (instead of marking them `public`). Replaces [Reexport
 
 ```julia
 @republic reexport=true using Foo             # exported → re-export
-@republic reexport=true using Foo: pub, exp   # public name `pub` is not exported
 ```
 
 ### Combined: full API forwarding
@@ -66,39 +65,6 @@ Re-exports exported names (instead of marking them `public`). Replaces [Reexport
 ```julia
 @republic reexport=true inherit=true using Foo  # re-export + inherit public
 ```
-
-### Full example
-
-```julia
-module MyPackage
-    using Republic
-
-    # Baseline: mark specific names
-    @republic using Foo: bar, baz
-    @republic import Foo: qux       # qux is extensible + public
-
-    # Inherit: forward the full public API
-    @republic inherit=true using CorePkg
-
-    # Re-export + inherit: the CUDA.jl pattern
-    @republic reexport=true inherit=true using BasePkg
-
-    # Blocks
-    @republic reexport=true inherit=true begin
-        using Dep1
-        using Dep2
-    end
-end
-```
-
-## Discovery API
-
-```julia
-exported_names(mod)   # names that are `export`ed — works on any Julia version
-public_names(mod)     # names that are `public` but not `export`ed — version-invariant
-```
-
-These two functions partition a module's API into non-overlapping sets. On Julia 1.11+, `public_names` uses `Base.ispublic`. On earlier versions, it reads from Republic's internal tracking (populated by `@public` and `@republic`).
 
 ## Overriding visibility
 
