@@ -3,7 +3,7 @@
 [![Build Status](https://github.com/MurrellGroup/Republic.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/MurrellGroup/Republic.jl/actions/workflows/CI.yml?query=branch%3Amain)
 [![Coverage](https://codecov.io/gh/MurrellGroup/Republic.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/MurrellGroup/Republic.jl)
 
-> Dependencies united under one public API.
+> Cross-version public API management for Julia packages.
 
 Republic.jl manages Julia's [`public`](https://docs.julialang.org/en/v1.11/base/base/#public) visibility across module boundaries and Julia versions. It provides:
 
@@ -23,7 +23,7 @@ using Republic: @public
 @public @my_macro        # macro name
 ```
 
-Replaces [SciMLPublic.jl](https://github.com/SciML/SciMLPublic.jl) and `@compat public` from [Compat.jl](https://github.com/JuliaLang/Compat.jl). Unlike those packages, Republic tracks declarations for cross-version discovery via `public_names(mod)`.
+Republic replaces `@compat public` from [Compat.jl](https://github.com/JuliaLang/Compat.jl), tracking declarations for cross-version discovery via `public_names(mod)`.
 
 ## `@republic`: Forwarding Public API
 
@@ -36,7 +36,7 @@ Replaces [SciMLPublic.jl](https://github.com/SciML/SciMLPublic.jl) and `@compat 
 
 ### Baseline (no flags)
 
-Marks what you bring in as `public`. No wildcard name discovery.
+Marks what you bring in as `public`.
 
 ```julia
 @republic using Foo                 # exported names → public
@@ -57,7 +57,8 @@ Discovers public-only names upstream. Imports them and marks them `public`.
 Re-exports exported names (instead of marking them `public`). Replaces [Reexport.jl](https://github.com/JuliaLang/Reexport.jl).
 
 ```julia
-@republic reexport=true using Foo   # exported → re-export
+@republic reexport=true using Foo             # exported → re-export
+@republic reexport=true using Foo: pub, exp   # public name `pub` is not exported
 ```
 
 ### Combined: full API forwarding
@@ -101,20 +102,20 @@ These two functions partition a module's API into non-overlapping sets. On Julia
 
 ## Overriding visibility
 
-Julia does not allow a name to be both `public` and `export`ed. Republic respects pre-existing declarations:
+Julia does not allow a name to be marked both `public` and `export`ed. Republic respects pre-existing declarations:
 
 ```julia
 module MyPackage
     using Republic
     export bar                                  # already exported
-    @republic republish=true using Foo          # skips `public bar`
+    @republic inherit=true using Foo            # skips `public bar`
 end
 ```
 
 ```julia
 module MyPackage
     using Republic
-    public bar                                  # already public
+    @public bar                                 # already public
     @republic reexport=true using Foo           # skips `export bar`
 end
 ```
@@ -133,3 +134,5 @@ The v1.x default performed wildcard discovery. In v2.0, the baseline is explicit
 ## Acknowledgments
 
 Republic.jl is derived from [Reexport.jl](https://github.com/JuliaLang/Reexport.jl) by Simon Kornblith (MIT License).
+
+Republic.jl v2 was inspired by `@public` from [CUDACore.jl](https://github.com/JuliaGPU/CUDA.jl/blob/c27d64b2ec32f72e82201364e20b0eb550f11e48/CUDACore/src/utils/public.jl).
