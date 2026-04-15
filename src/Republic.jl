@@ -61,11 +61,7 @@ macro public(symbols_expr)
     mod = __module__
     _ensure_storage(mod)
     append!(_get_storage(mod), syms)
-    @static if VERSION >= v"1.11.0-DEV.469"
-        return esc(Expr(:public, syms...))
-    else
-        return nothing
-    end
+    @static VERSION >= v"1.11.0-DEV.469" ? esc(Expr(:public, syms...)) : nothing
 end
 
 
@@ -104,11 +100,7 @@ end
 # Version-invariant visibility check (exported OR public)
 function _is_visible(mod::Module, name::Symbol)
     Base.isexported(mod, name) && return true
-    @static if VERSION >= v"1.11.0-DEV.469"
-        return Base.ispublic(mod, name)
-    else
-        return name in _get_storage(mod)
-    end
+    @static VERSION >= v"1.11.0-DEV.469" ? Base.ispublic(mod, name) : name in _get_storage(mod)
 end
 
 
