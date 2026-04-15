@@ -35,7 +35,8 @@ function _get_public_symbols(expr::Expr)
     return symbols
 end
 
-function _is_macro_expr(expr::Expr)
+function _is_macro_expr(expr)
+    expr isa Expr || return false
     Meta.isexpr(expr, :macrocall) || return false
     length(expr.args) == 2 || return false
     expr.args[1] isa Symbol || return false
@@ -44,7 +45,6 @@ function _is_macro_expr(expr::Expr)
     expr.args[2] isa LineNumberNode || return false
     return true
 end
-_is_macro_expr(::Any) = false
 
 """
     @public name
