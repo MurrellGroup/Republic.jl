@@ -7,9 +7,9 @@
 
 Republic.jl manages Julia's [`public`](https://docs.julialang.org/en/v1.11/base/base/#public) visibility across module boundaries and Julia versions. It provides:
 
-- **`@public`** — declare names as public API, with cross-version tracking
+- **`@public`** — declare names as public API
 - **`@republic`** — forward upstream names into your module's public API
-- **`public_names` / `exported_names`** — version-invariant discovery functions
+- **`public_names` / `exported_names`** — discover public / exported functions
 
 On Julia 1.11+, Republic uses the native `public` keyword. On earlier versions, it tracks declarations internally and degrades gracefully.
 
