@@ -9,9 +9,8 @@ Republic.jl manages Julia's [`public`](https://docs.julialang.org/en/v1.11/base/
 
 - **`@public`** — declare names as public API
 - **`@republic`** — forward upstream names into your module's public API
-- **`public_names` / `exported_names`** — discover public / exported functions
-
-On Julia 1.11+, Republic uses the native `public` keyword. On earlier versions, it tracks declarations internally and degrades gracefully.
+- **`Republic.public_names`** — returns a vector of names marked public with `@public` or the `public` keyword on Julia 1.11 or later.
+- **`Republic.exported_names`** — returns a vector of exported names.
 
 ## `@public`: Declaring Public API
 
@@ -23,7 +22,7 @@ using Republic: @public
 @public @my_macro        # macro name
 ```
 
-Republic replaces `@compat public` from [Compat.jl](https://github.com/JuliaLang/Compat.jl), tracking declarations for cross-version discovery via `public_names(mod)`.
+`@public` replaces `@compat public` from [Compat.jl](https://github.com/JuliaLang/Compat.jl), tracking declarations for cross-version discovery via `public_names(mod)`.
 
 ## `@republic`: Forwarding Public API
 
