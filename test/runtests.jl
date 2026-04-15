@@ -31,6 +31,17 @@ end
     @test Symbol("@mymac") in public_names(Pub3)
 end
 
+module Pub4
+    using Republic: @public
+    const A = 1
+    macro mymac() end
+    @public A, @mymac
+end
+@testset "@public: mixed tuple with macro" begin
+    @test :A in public_names(Pub4)
+    @test Symbol("@mymac") in public_names(Pub4)
+end
+
 #=== Discovery API ===#
 
 module Disc1
