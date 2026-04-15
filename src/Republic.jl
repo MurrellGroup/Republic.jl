@@ -68,7 +68,7 @@ end
 """
     exported_names(mod::Module) -> Vector{Symbol}
 
-Return names that are `export`ed from `mod`. Version-invariant.
+Return names that are `export`ed from `mod`.
 
 See also: [`public_names`](@ref)
 """
@@ -79,7 +79,7 @@ end
 """
     public_names(mod::Module) -> Vector{Symbol}
 
-Return names that are `public` but not `export`ed in `mod`. Version-invariant.
+Return names that are `public` but not `export`ed in `mod`.
 
 On Julia 1.11+, uses `Base.ispublic`. On earlier versions, reads from
 Republic's internal per-module storage (populated by [`@public`](@ref) and
@@ -97,7 +97,6 @@ function public_names(mod::Module)
     end
 end
 
-# Version-invariant visibility check (exported OR public)
 function _is_visible(mod::Module, name::Symbol)
     Base.isexported(mod, name) && return true
     @static VERSION >= v"1.11.0-DEV.469" ? Base.ispublic(mod, name) : name in _get_storage(mod)
