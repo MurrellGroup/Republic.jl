@@ -5,74 +5,130 @@
 
 > Dependencies united under one public API.
 
-Republic.jl re-publicizes names from upstream modules, making them part of your module's public API without exporting them into the caller's namespace. Like [Reexport.jl](https://github.com/JuliaLang/Reexport.jl), but for Julia's [`public`](https://docs.julialang.org/en/v1.11/base/base/#public) keyword (introduced in Julia 1.11).
+Republic.jl manages Julia's [`public`](https://docs.julialang.org/en/v1.11/base/base/#public) visibility across module boundaries and Julia versions. It provides:
 
-## Usage
+- **`@public`** — declare names as public API, with cross-version tracking
+- **`@republic`** — forward upstream names into your module's public API
+- **`public_names` / `exported_names`** — version-invariant discovery functions
+
+On Julia 1.11+, Republic uses the native `public` keyword. On earlier versions, it tracks declarations internally and degrades gracefully.
+
+## `@public`: Declaring Public API
+
+```julia
+using Republic: @public
+
+@public foo              # single name
+@public foo, bar, baz    # multiple names
+@public @my_macro        # macro name
+```
+
+Replaces [SciMLPublic.jl](https://github.com/SciML/SciMLPublic.jl) and `@compat public` from [Compat.jl](https://github.com/JuliaLang/Compat.jl). Unlike those packages, Republic tracks declarations for cross-version discovery via `public_names(mod)`.
+
+## `@republic`: Forwarding Public API
+
+`@republic` has two orthogonal, composable flags:
+
+| | `inherit=false` (default) | `inherit=true` |
+|---|---|---|
+| **`reexport=false`** (default) | exported → `public` | exported → `public`, public-only → import + `public` |
+| **`reexport=true`** | exported → re-`export` | exported → re-`export`, public-only → import + `public` |
+
+### Baseline (no flags)
+
+Marks what you bring in as `public`. No wildcard name discovery.
+
+```julia
+@republic using Foo                 # exported names → public
+@republic using Foo: bar, baz       # specific names → public
+@republic import Foo: bar           # import semantics + public
+```
+
+### `inherit=true`
+
+Discovers public-only names upstream. Imports them and marks them `public`.
+
+```julia
+@republic inherit=true using Foo    # all API names → public
+```
+
+### `reexport=true`
+
+Re-exports exported names (instead of marking them `public`). Replaces [Reexport.jl](https://github.com/JuliaLang/Reexport.jl).
+
+```julia
+@republic reexport=true using Foo   # exported → re-export
+```
+
+### Combined: full API forwarding
+
+```julia
+@republic reexport=true inherit=true using Foo  # re-export + inherit public
+```
+
+### Full example
 
 ```julia
 module MyPackage
     using Republic
 
-    # All of Foo's public and exported names become public in MyPackage.
-    # Unlike plain `using Foo`, this also brings in public (non-exported) names
-    @republic using Foo
-
-    # Qualified to avoid clutter
+    # Baseline: mark specific names
     @republic using Foo: bar, baz
+    @republic import Foo: qux       # qux is extensible + public
 
-    # The alias `F` becomes public in `MyPackage`
-    @republic using Foo: Foo as F
+    # Inherit: forward the full public API
+    @republic inherit=true using CorePkg
 
-    # Only `Bar` gets imported and marked public
-    @republic import Bar
-
-    # `baz` can be extended within MyPackage, and is marked public
-    @republic import Bar: baz
+    # Re-export + inherit: the CUDA.jl pattern
+    @republic reexport=true inherit=true using BasePkg
 
     # Blocks
-    @republic begin
-        using Foo
-        using Bar
+    @republic reexport=true inherit=true begin
+        using Dep1
+        using Dep2
     end
 end
 ```
 
-Names re-publicized in `MyPackage` become accessible via qualified access (`MyPackage.bar`) without being brought into scope by `using MyPackage`. This is useful for packages that want to conveniently expose a broad API surface from different packages without polluting the caller's namespace.
-
-The main use case for re-publicizing is lightweight "Core" or "Base" packages — like [StaticArraysCore](https://github.com/JuliaArrays/StaticArraysCore.jl/), [EnzymeCore](https://github.com/EnzymeAD/Enzyme.jl/tree/main/lib/EnzymeCore), and [ManifoldsBase](https://github.com/JuliaManifolds/ManifoldsBase.jl) — whose types and functions you want to surface as part of your package's API. This also works for heavier packages whose interfaces you may be implementing, but make sure to `@republic` a qualified import to avoid clutter!
-
-## Re-exporting
-
-By default, `@republic` makes everything public. To also re-export names that were exported upstream, use `reexport=true`:
+## Discovery API
 
 ```julia
-@republic reexport=true using Foo
+exported_names(mod)   # names that are `export`ed — works on any Julia version
+public_names(mod)     # names that are `public` but not `export`ed — version-invariant
 ```
 
-With `reexport=true`, exported names are re-exported (like Reexport.jl), and public-only names are marked public. Republic never promotes a public-only name to exported — that is a deliberate choice left to the user (see below).
+These two functions partition a module's API into non-overlapping sets. On Julia 1.11+, `public_names` uses `Base.ispublic`. On earlier versions, it reads from Republic's internal tracking (populated by `@public` and `@republic`).
 
 ## Overriding visibility
 
-Julia does not allow a name to be marked with both `public` and `export`. This only matters if a name is public upstream but you want to export it in your module. To export a public-only name, declare the `export` *before* `@republic`:
+Julia does not allow a name to be both `public` and `export`ed. Republic respects pre-existing declarations:
 
 ```julia
 module MyPackage
     using Republic
-    export bar            # bar will be exported, not just public
-    @republic using Foo   # skips `public` for bar since it's already exported
+    export bar                                  # already exported
+    @republic republish=true using Foo          # skips `public bar`
 end
 ```
-
-Alternatively, use qualified imports to keep `@republic` and `export` separate:
 
 ```julia
 module MyPackage
     using Republic
-    using Foo: bar
-    export bar
-    @republic using Foo: baz, qux  # only these become public
+    public bar                                  # already public
+    @republic reexport=true using Foo           # skips `export bar`
 end
 ```
+
+## Migration from v1.x
+
+The default behavior of `@republic` changed in v2.0:
+
+| v1.x | v2.0 equivalent |
+|---|---|
+| `@republic using Foo` | `@republic inherit=true using Foo` |
+| `@republic reexport=true using Foo` | `@republic reexport=true inherit=true using Foo` |
+
+The v1.x default performed wildcard discovery. In v2.0, the baseline is explicit — use `inherit=true` to opt into discovery. `reexport=true` no longer implies `inherit`.
 
 ## Acknowledgments
 
