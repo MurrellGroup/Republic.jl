@@ -1,4 +1,4 @@
-using Republic: Republic, @republic, @public, public_names, exported_names
+using Republic: Republic, @republic, @reexport, @public, public_names, exported_names
 using Test
 
 #=== @public macro ===#
@@ -616,6 +616,195 @@ end
     @test :PA in public_names(Chain_C)
     @test Chain_C.FA == 1
     @test Chain_C.PA == 2
+end
+
+#=== @reexport macro ===#
+
+module XRE1
+    using Republic
+    @reexport using Main.Y_reexport
+end
+@testset "@reexport: basic usage (like @republic reexport=true)" begin
+    @test :R1 in exported_names(XRE1)
+    @test :R2 in exported_names(XRE1)
+    @test XRE1.R1 == 10
+    @test XRE1.R2 == 20
+end
+
+module XRE2
+    using Republic
+    @reexport inherit=true using Main.Y2
+end
+@testset "@reexport: inherit=true" begin
+    @test :A in exported_names(XRE2)
+    @test :B in public_names(XRE2)
+    @test !Base.isexported(XRE2, :B)
+    @test XRE2.A == 1
+    @test XRE2.B == 2
+end
+
+module XRE3
+    using Republic
+    @reexport using Main.Y5: Z5, Z6
+end
+@testset "@reexport: colon-qualified preserves visibility" begin
+    @test :Z5 in exported_names(XRE3)
+    @test :Z6 in public_names(XRE3)
+    @test !Base.isexported(XRE3, :Z6)
+    @test XRE3.Z5 == 5
+    @test XRE3.Z6 == 6
+end
+
+module XRE4
+    using Republic
+    @reexport import Main.Y6.Z7, Main.Y6b.Z8
+end
+@testset "@reexport: import dot-qualified preserves visibility" begin
+    @test :Z7 in exported_names(XRE4)
+    @test :Z8 in public_names(XRE4)
+    @test !Base.isexported(XRE4, :Z8)
+end
+
+module XRE5
+    using Republic
+    @reexport begin
+        using Main.Y3
+        using Main.Y4
+    end
+end
+@testset "@reexport: block syntax" begin
+    @test :Z3 in exported_names(XRE5)
+    @test !(:Z4 in exported_names(XRE5))  # Z4 is public-only, no inherit
+end
+
+module XRE6
+    using Republic
+    @reexport inherit=true begin
+        using Main.Y3
+        using Main.Y4
+    end
+end
+@testset "@reexport: inherit=true block syntax" begin
+    @test :Z3 in exported_names(XRE6)
+    @test :Z4 in public_names(XRE6)
+    @test !Base.isexported(XRE6, :Z4)
+    @test XRE6.Z3 == 3
+    @test XRE6.Z4 == 4
+end
+
+module XRE7
+    using Republic
+    @reexport republic=false using Main.Y2
+end
+@testset "@reexport republic=false: re-exports but no public" begin
+    @test :A in exported_names(XRE7)    # exported upstream → re-exported
+    @test !(:B in public_names(XRE7))   # public upstream → not brought in (no inherit)
+    @test XRE7.A == 1
+end
+
+module XRE8
+    using Republic
+    @reexport republic=false inherit=true using Main.Y2
+end
+@testset "@reexport republic=false inherit=true: re-exports exported, imports public privately" begin
+    @test :A in exported_names(XRE8)
+    @test !(:B in public_names(XRE8))
+    @test !(:B in exported_names(XRE8))
+    @test XRE8.A == 1
+    @test XRE8.B == 2
+end
+
+@testset "@reexport: rejects reexport flag" begin
+    @test_throws Exception @macroexpand @reexport reexport=true using Foo
+end
+
+@testset "@reexport: rejects unknown flag" begin
+    @test_throws Exception @macroexpand @reexport badflag=true using Foo
+end
+
+#=== republic=false: import without republishing ===#
+
+module XNR1
+    using Republic
+    @republic republic=false using Main.Y_reexport
+end
+@testset "republic=false: baseline — names imported but not public" begin
+    @test !(:R1 in public_names(XNR1))
+    @test !(:R1 in exported_names(XNR1))
+    @test XNR1.R1 == 10
+    @test XNR1.R2 == 20
+end
+
+module XNR2
+    using Republic
+    @republic republic=false inherit=true using Main.Y2
+end
+@testset "republic=false inherit=true: all names imported, none public" begin
+    @test !(:A in public_names(XNR2))
+    @test !(:B in public_names(XNR2))
+    @test !(:A in exported_names(XNR2))
+    @test !(:B in exported_names(XNR2))
+    @test XNR2.A == 1
+    @test XNR2.B == 2
+end
+
+module XNR3
+    using Republic
+    @republic republic=false using Main.Y5: Z5, Z6
+end
+@testset "republic=false: colon-qualified — imported but not public" begin
+    @test !(:Z5 in public_names(XNR3))
+    @test !(:Z6 in public_names(XNR3))
+    @test !(:Z5 in exported_names(XNR3))
+    @test XNR3.Z5 == 5
+    @test XNR3.Z6 == 6
+end
+
+module XNR4
+    using Republic
+    @republic republic=false import Main.Y6.Z7
+end
+@testset "republic=false: import dot-qualified — imported but not public" begin
+    @test !(:Z7 in public_names(XNR4))
+    @test !(:Z7 in exported_names(XNR4))
+    @test XNR4.Z7 == 7
+end
+
+module XNR5
+    using Republic
+    @republic republic=false inherit=true begin
+        using Main.Y3
+        using Main.Y4
+    end
+end
+@testset "republic=false inherit=true: block syntax" begin
+    @test !(:Z3 in public_names(XNR5))
+    @test !(:Z4 in public_names(XNR5))
+    @test !(:Z3 in exported_names(XNR5))
+    @test XNR5.Z3 == 3
+    @test XNR5.Z4 == 4
+end
+
+module XNR6
+    using Republic
+    @republic republic=false import Test as T
+end
+@testset "republic=false: bare import as alias — not exported" begin
+    @test !(:T in public_names(XNR6))
+    @test !(:T in exported_names(XNR6))
+    @test XNR6.T === Test
+end
+
+@testset "republic=false reexport=true: orthogonal — exported re-exported, public suppressed" begin
+    mod = @eval module XNR7
+        using Republic
+        @republic republic=false reexport=true inherit=true using Main.Y2
+    end
+    @test :A in exported_names(mod)    # exported upstream → re-exported (reexport wins)
+    @test !(:B in public_names(mod))   # public upstream → imported but not marked public
+    @test !(:B in exported_names(mod))
+    @test mod.A == 1
+    @test mod.B == 2
 end
 
 #=== Julia 1.11+ tests (native `public` keyword) ===#

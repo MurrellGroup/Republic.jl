@@ -9,8 +9,9 @@ Republic.jl manages Julia's [`public`](https://docs.julialang.org/en/v1.11/base/
 
 - **`@public`** — declare names as public API
 - **`@republic`** — forward upstream names into your module's public API
-- **`Republic.public_names`** — returns a vector of names marked public with `@public` or the `public` keyword on Julia 1.11 or later.
-- **`Republic.exported_names`** — returns a vector of exported names.
+- **`@reexport`** — shorthand for `@republic reexport=true`
+- **`public_names`** — returns public-but-not-exported names
+- **`exported_names`** — returns exported names
 
 ## `@public`: Declaring Public API
 
@@ -26,12 +27,17 @@ using Republic: @public
 
 ## `@republic`: Forwarding Public API
 
-`@republic` has two orthogonal, composable flags:
+`@republic` has three orthogonal, composable flags:
+
+- **`inherit`** — whether to discover and import public-only names from upstream
+- **`reexport`** — whether to re-export (instead of marking `public`) exported names
+- **`republic`** — whether to mark imported names as `public` (default: `true`)
 
 | | `inherit=false` (default) | `inherit=true` |
 |---|---|---|
-| **`reexport=false`** (default) | exported → `public` | exported → `public`, public-only → import + `public` |
+| **default** | exported → `public` | exported → `public`, public-only → import + `public` |
 | **`reexport=true`** | exported → re-`export` | exported → re-`export`, public-only → import + `public` |
+| **`republic=false`** | (plain `using`) | public-only → import (not marked) |
 
 ### Baseline (no flags)
 
@@ -57,12 +63,22 @@ Re-exports exported names (instead of marking them `public`). Replaces [Reexport
 
 ```julia
 @republic reexport=true using Foo             # exported → re-export
+@reexport using Foo                           # equivalent shorthand
+```
+
+### `republic=false`
+
+Suppresses the `public` marking. Useful with `inherit=true` for importing the full upstream public API without republishing it.
+
+```julia
+@republic republic=false inherit=true using Foo  # import full API, keep private
 ```
 
 ### Combined: full API forwarding
 
 ```julia
 @republic reexport=true inherit=true using Foo  # re-export + inherit public
+@reexport inherit=true using Foo                # equivalent shorthand
 ```
 
 ## Overriding visibility
