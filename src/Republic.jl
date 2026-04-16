@@ -104,7 +104,7 @@ end
 
 
 """
-    @republic [inherit=true] [reexport=true] using/import ...
+    @republic [inherit=true] [reexport=true] [republic=false] using/import ...
 
 Forward upstream names as part of the current module's public API.
 
@@ -117,6 +117,10 @@ marks them `public`.
 **`reexport=true`**: re-exports exported names (instead of marking them
 `public`).
 
+**`republic=false`**: suppresses the `public` marking. Useful with
+`inherit=true` for importing the full upstream public API without
+republishing it.
+
 The flags are orthogonal and composable.
 
 # Examples
@@ -126,6 +130,7 @@ The flags are orthogonal and composable.
 @republic inherit=true using Foo                   # + public-only names → public
 @republic reexport=true using Foo                  # exported → re-export
 @republic reexport=true inherit=true using Foo     # full API forwarding
+@republic republic=false inherit=true using Foo    # import full API, keep private
 @republic using Foo: bar, baz                      # specific names → public
 @republic reexport=true using Foo: bar             # preserves per-name visibility
 @republic import Foo: bar                          # import semantics + public
@@ -136,42 +141,66 @@ end
 ```
 """
 macro republic(ex::Expr)
-    esc(republic(__module__, false, false, ex))
+    inherit, reexport, do_republic = _parse_flags()
+    esc(republic(__module__, inherit, reexport, do_republic, ex))
 end
 
-macro republic(flag_ex::Expr, ex::Expr)
-    name, value = _parse_flag(flag_ex)
-    inherit = name === :inherit && value
-    reexport = name === :reexport && value
-    esc(republic(__module__, inherit, reexport, ex))
+macro republic(f1::Expr, ex::Expr)
+    inherit, reexport, do_republic = _parse_flags(f1)
+    esc(republic(__module__, inherit, reexport, do_republic, ex))
 end
 
-macro republic(flag1::Expr, flag2::Expr, ex::Expr)
-    n1, v1 = _parse_flag(flag1)
-    n2, v2 = _parse_flag(flag2)
-    n1 !== n2 || error("@republic: duplicate flag `$n1`")
-    inherit = (n1 === :inherit ? v1 : v2)
-    reexport = (n1 === :reexport ? v1 : v2)
-    esc(republic(__module__, inherit, reexport, ex))
+macro republic(f1::Expr, f2::Expr, ex::Expr)
+    inherit, reexport, do_republic = _parse_flags(f1, f2)
+    esc(republic(__module__, inherit, reexport, do_republic, ex))
+end
+
+macro republic(f1::Expr, f2::Expr, f3::Expr, ex::Expr)
+    inherit, reexport, do_republic = _parse_flags(f1, f2, f3)
+    esc(republic(__module__, inherit, reexport, do_republic, ex))
 end
 
 function _parse_flag(ex::Expr)
     ex.head === :(=) && ex.args[1] isa Symbol ||
         error("@republic: expected `flag=value`, got `$ex`")
     name = ex.args[1]::Symbol
-    name in (:inherit, :reexport) ||
-        error("@republic: unknown flag `$name`. Expected `inherit` or `reexport`")
+    name in (:inherit, :reexport, :republic) ||
+        error("@republic: unknown flag `$name`. Expected `inherit`, `reexport`, or `republic`")
     value = ex.args[2]::Bool
     return name, value
 end
 
+function _parse_flags(exprs::Expr...)
+    inherit = false
+    reexport = false
+    do_republic = true
+    seen_inherit = seen_reexport = seen_republic = false
+    for ex in exprs
+        name, value = _parse_flag(ex)
+        if name === :inherit
+            seen_inherit && error("@republic: duplicate flag `$name`")
+            seen_inherit = true
+            inherit = value
+        elseif name === :reexport
+            seen_reexport && error("@republic: duplicate flag `$name`")
+            seen_reexport = true
+            reexport = value
+        elseif name === :republic
+            seen_republic && error("@republic: duplicate flag `$name`")
+            seen_republic = true
+            do_republic = value
+        end
+    end
+    return inherit, reexport, do_republic
+end
 
-republic(m::Module, inherit::Bool, reexport::Bool, l::LineNumberNode) = l
 
-function republic(m::Module, inherit::Bool, reexport::Bool, ex::Expr)
+republic(m::Module, inherit::Bool, reexport::Bool, do_republic::Bool, l::LineNumberNode) = l
+
+function republic(m::Module, inherit::Bool, reexport::Bool, do_republic::Bool, ex::Expr)
     ex = macroexpand(m, ex)
     if ex.head === :block
-        return Expr(:block, map(e -> republic(m, inherit, reexport, e), ex.args)...)
+        return Expr(:block, map(e -> republic(m, inherit, reexport, do_republic, e), ex.args)...)
     end
 
     ex.head::Symbol in (:module, :using, :import) ||
@@ -196,7 +225,7 @@ function republic(m::Module, inherit::Bool, reexport::Bool, ex::Expr)
         orig_names, local_names = _extract_names(ex.args[1].args[2:end])
         return Expr(:toplevel, ex,
             :($_republish_syms($eval, $m, $_resolve($m, $(QuoteNode(path_parts))),
-                $(QuoteNode(orig_names)), $(QuoteNode(local_names)), $inherit, $reexport)))
+                $(QuoteNode(orig_names)), $(QuoteNode(local_names)), $inherit, $reexport, $do_republic)))
     elseif ex.head === :import && all(e -> e.head in (:., :as), ex.args)
         # @republic import Foo.bar, Baz.qux, Pkg as P
         out = Expr(:toplevel, ex)
@@ -212,12 +241,15 @@ function republic(m::Module, inherit::Bool, reexport::Bool, ex::Expr)
             path_parts = path.args[1:end-1]
             if isempty(path_parts)
                 # `import Foo` or `import Foo as Bar` — module import
-                _mark = reexport ? _mark_exp : _mark_pub
-                push!(out.args, :($_mark($eval, $m, [$(QuoteNode(local_name))])))
+                if reexport
+                    push!(out.args, :($_mark_exp($eval, $m, [$(QuoteNode(local_name))])))
+                elseif do_republic
+                    push!(out.args, :($_mark_pub($eval, $m, [$(QuoteNode(local_name))])))
+                end
             else
                 push!(out.args,
                     :($_republish_syms($eval, $m, $_resolve($m, $(QuoteNode(path_parts))),
-                        $(QuoteNode([orig_name])), $(QuoteNode([local_name])), $inherit, $reexport)))
+                        $(QuoteNode([orig_name])), $(QuoteNode([local_name])), $inherit, $reexport, $do_republic)))
             end
         end
         return out
@@ -228,7 +260,7 @@ function republic(m::Module, inherit::Bool, reexport::Bool, ex::Expr)
 
     out = Expr(:toplevel, ex)
     for mod in modules
-        push!(out.args, :($_republish($eval, $m, $mod, $inherit, $reexport)))
+        push!(out.args, :($_republish($eval, $m, $mod, $inherit, $reexport, $do_republic)))
     end
     return out
 end
@@ -300,12 +332,11 @@ function _mark_exported(eval, m::Module, nms::Vector{Symbol})
     eval(m, Expr(:export, nms...))
 end
 
-function republish_names(eval, m::Module, upstream::Module, inherit::Bool, reexport::Bool)
-    exp = collect(exported_names(upstream))
+function republish_names(eval, m::Module, upstream::Module, inherit::Bool, reexport::Bool, do_republic::Bool=true)
     if reexport
-        _mark_exported(eval, m, exp)
-    else
-        _mark_public(eval, m, exp)
+        _mark_exported(eval, m, collect(exported_names(upstream)))
+    elseif do_republic
+        _mark_public(eval, m, collect(exported_names(upstream)))
     end
     # Inherit: also discover and import public-only names
     if inherit
@@ -314,29 +345,56 @@ function republish_names(eval, m::Module, upstream::Module, inherit::Bool, reexp
         for name in pub
             eval(m, Expr(:using, Expr(:(:), Expr(:., fqn...), Expr(:., name))))
         end
-        _mark_public(eval, m, pub)
+        do_republic && _mark_public(eval, m, pub)
     end
     nothing
 end
 
 function republish_symbols(eval, m::Module, upstream::Module,
                            orig_names::Vector{Symbol}, local_names::Vector{Symbol},
-                           inherit::Bool, reexport::Bool)
+                           inherit::Bool, reexport::Bool, do_republic::Bool=true)
     exported = Symbol[]
     public_only = Symbol[]
     for (orig, local_name) in zip(orig_names, local_names)
         if reexport && Base.isexported(upstream, orig)
             push!(exported, local_name)
-        elseif _is_visible(upstream, orig)
+        elseif do_republic && _is_visible(upstream, orig)
             push!(public_only, local_name)
         end
     end
     _mark_exported(eval, m, exported)
-    _mark_public(eval, m, public_only)
+    do_republic && _mark_public(eval, m, public_only)
     nothing
 end
 
-export @republic, @public
+"""
+    @reexport [inherit=true] [republic=false] using/import ...
+
+Shorthand for `@republic reexport=true ...`. See [`@republic`](@ref).
+"""
+macro reexport(ex::Expr)
+    esc(republic(__module__, false, true, true, ex))
+end
+
+macro reexport(f1::Expr, ex::Expr)
+    inherit, _, do_republic = _parse_reexport_flags(f1)
+    esc(republic(__module__, inherit, true, do_republic, ex))
+end
+
+macro reexport(f1::Expr, f2::Expr, ex::Expr)
+    inherit, _, do_republic = _parse_reexport_flags(f1, f2)
+    esc(republic(__module__, inherit, true, do_republic, ex))
+end
+
+function _parse_reexport_flags(exprs::Expr...)
+    for ex in exprs
+        name, _ = _parse_flag(ex)
+        name === :reexport && error("@reexport: `reexport` flag is redundant — @reexport implies reexport=true")
+    end
+    _parse_flags(exprs...)
+end
+
+export @republic, @public, @reexport
 @public public_names, exported_names
 
 end
