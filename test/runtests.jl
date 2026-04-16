@@ -618,6 +618,76 @@ end
     @test Chain_C.PA == 2
 end
 
+#=== inherit=true with bare import ===#
+
+module Y_bare_import
+    using Republic: @public
+    f() = :original
+    const A = 1
+    export f
+    @public A
+end
+module X_bare_import
+    using Republic
+    @republic inherit=true import Main.Y_bare_import
+    f(x::Int) = :extended  # method extension — import semantics
+end
+@testset "inherit=true import: imports all visible names with import semantics" begin
+    @test :f in public_names(X_bare_import)               # exported upstream
+    @test :A in public_names(X_bare_import)               # public upstream
+    @test X_bare_import.A == 1
+    @test X_bare_import.f() == :original
+    @test X_bare_import.f(1) == :extended
+    @test Main.Y_bare_import.f(1) == :extended  # same function was extended
+end
+
+# Without inherit, bare import only gets the module binding
+module X_bare_import_no_inherit
+    using Republic
+    @republic import Main.Y_bare_import
+end
+@testset "bare import without inherit: only module binding" begin
+    @test !(:f in public_names(X_bare_import_no_inherit))
+    @test !(:A in public_names(X_bare_import_no_inherit))
+end
+
+# inherit=true import with alias
+module X_bare_import_as
+    using Republic
+    @republic inherit=true import Main.Y_bare_import as YBI
+end
+@testset "inherit=true import as alias" begin
+    @test :f in public_names(X_bare_import_as)
+    @test :A in public_names(X_bare_import_as)
+    @test X_bare_import_as.A == 1
+    @test X_bare_import_as.YBI === Main.Y_bare_import
+end
+
+# inherit=true import with reexport=true
+module X_bare_import_reexport
+    using Republic
+    @republic inherit=true reexport=true import Main.Y_bare_import
+end
+@testset "inherit=true import reexport=true: preserves visibility" begin
+    @test :Y_bare_import in exported_names(X_bare_import_reexport)  # module re-exported
+    @test :f in exported_names(X_bare_import_reexport)              # exported upstream → re-exported
+    @test :A in public_names(X_bare_import_reexport)                # public upstream → public
+    @test !Base.isexported(X_bare_import_reexport, :A)
+end
+
+# inherit=true import with republic=false
+module X_bare_import_norepublic
+    using Republic
+    @republic inherit=true republic=false import Main.Y_bare_import
+end
+@testset "inherit=true import republic=false: imports but no marking" begin
+    @test !(:Y_bare_import in public_names(X_bare_import_norepublic))
+    @test !(:f in public_names(X_bare_import_norepublic))
+    @test !(:A in public_names(X_bare_import_norepublic))
+    @test X_bare_import_norepublic.A == 1
+    @test X_bare_import_norepublic.f() == :original
+end
+
 #=== @reexport macro ===#
 
 module XRE1

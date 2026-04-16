@@ -213,6 +213,7 @@ function republic(m::Module, inherit::Bool, reexport::Bool, do_republic::Bool, e
     _resolve = GlobalRef(@__MODULE__, :resolve_module)
     _mark_pub = GlobalRef(@__MODULE__, :_mark_public)
     _mark_exp = GlobalRef(@__MODULE__, :_mark_exported)
+    _reimport = GlobalRef(@__MODULE__, :_try_reimport)
 
     if ex.head === :module
         modules = Any[ex.args[2]]
@@ -225,7 +226,7 @@ function republic(m::Module, inherit::Bool, reexport::Bool, do_republic::Bool, e
         orig_names, local_names = _extract_names(ex.args[1].args[2:end])
         return Expr(:toplevel, ex,
             :($_republish_syms($eval, $m, $_resolve($m, $(QuoteNode(path_parts))),
-                $(QuoteNode(orig_names)), $(QuoteNode(local_names)), $inherit, $reexport, $do_republic)))
+                $(QuoteNode(orig_names)), $(QuoteNode(local_names)), $reexport, $do_republic)))
     elseif ex.head === :import && all(e -> e.head in (:., :as), ex.args)
         # @republic import Foo.bar, Baz.qux, Pkg as P
         out = Expr(:toplevel, ex)
@@ -249,7 +250,11 @@ function republic(m::Module, inherit::Bool, reexport::Bool, do_republic::Bool, e
             else
                 push!(out.args,
                     :($_republish_syms($eval, $m, $_resolve($m, $(QuoteNode(path_parts))),
-                        $(QuoteNode([orig_name])), $(QuoteNode([local_name])), $inherit, $reexport, $do_republic)))
+                        $(QuoteNode([orig_name])), $(QuoteNode([local_name])), $reexport, $do_republic)))
+            end
+            if inherit
+                push!(out.args, :($_reimport($eval, $m, $(QuoteNode(local_name)),
+                    $reexport, $do_republic)))
             end
         end
         return out
@@ -334,13 +339,13 @@ end
 
 function republish_names(eval, m::Module, upstream::Module, inherit::Bool, reexport::Bool, do_republic::Bool=true)
     if reexport
-        _mark_exported(eval, m, collect(exported_names(upstream)))
+        _mark_exported(eval, m, exported_names(upstream))
     elseif do_republic
-        _mark_public(eval, m, collect(exported_names(upstream)))
+        _mark_public(eval, m, exported_names(upstream))
     end
     # Inherit: also discover and import public-only names
     if inherit
-        pub = collect(public_names(upstream))
+        pub = public_names(upstream)
         fqn = fullname(upstream)
         for name in pub
             eval(m, Expr(:using, Expr(:(:), Expr(:., fqn...), Expr(:., name))))
@@ -350,9 +355,33 @@ function republish_names(eval, m::Module, upstream::Module, inherit::Bool, reexp
     nothing
 end
 
+function _try_reimport(eval, m::Module, name::Symbol, reexport::Bool, do_republic::Bool)
+    isdefined(m, name) || return nothing
+    val = getfield(m, name)
+    val isa Module || return nothing
+    reimport_names(eval, m, val, reexport, do_republic)
+end
+
+function reimport_names(eval, m::Module, upstream::Module, reexport::Bool, do_republic::Bool)
+    fqn = fullname(upstream)
+    exp = exported_names(upstream)
+    pub = public_names(upstream)
+    # Import all visible names with import semantics (method extension possible)
+    for name in Iterators.flatten((exp, pub))
+        eval(m, Expr(:import, Expr(:(:), Expr(:., fqn...), Expr(:., name))))
+    end
+    if reexport
+        _mark_exported(eval, m, exp)
+    elseif do_republic
+        _mark_public(eval, m, exp)
+    end
+    do_republic && _mark_public(eval, m, pub)
+    nothing
+end
+
 function republish_symbols(eval, m::Module, upstream::Module,
                            orig_names::Vector{Symbol}, local_names::Vector{Symbol},
-                           inherit::Bool, reexport::Bool, do_republic::Bool=true)
+                           reexport::Bool, do_republic::Bool=true)
     exported = Symbol[]
     public_only = Symbol[]
     for (orig, local_name) in zip(orig_names, local_names)

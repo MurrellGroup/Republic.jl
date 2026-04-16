@@ -27,21 +27,29 @@ using Republic: @public
 
 ## `@republic`: Forwarding Public API
 
-`@republic` has three orthogonal, composable flags:
+`@republic` preserves `using`/`import` semantics and has three orthogonal, composable flags:
 
-- **`inherit`** — whether to discover and import public-only names from upstream
-- **`reexport`** — whether to re-export (instead of marking `public`) exported names
-- **`republic`** — whether to mark imported names as `public` (default: `true`)
+- **`inherit`** — discover and import public-only names from upstream (default: `false`)
+- **`reexport`** — re-export exported names instead of marking them `public` (default: `false`)
+- **`republic`** — mark imported names as `public` (default: `true`)
 
-| | `inherit=false` (default) | `inherit=true` |
-|---|---|---|
-| **default** | exported → `public` | exported → `public`, public-only → import + `public` |
-| **`reexport=true`** | exported → re-`export` | exported → re-`export`, public-only → import + `public` |
-| **`republic=false`** | (plain `using`) | public-only → import (not marked) |
+### `using` vs `import`
+
+`@republic` preserves Julia's native `using`/`import` distinction:
+
+- **`using`** brings names into scope for *use* (no method extension)
+- **`import`** brings names into scope for *extension* (methods can be added)
+
+With `inherit=true`, this extends to wildcard discovery:
+
+```julia
+@republic inherit=true using Foo    # all API names available, using semantics
+@republic inherit=true import Foo   # all API names available, import semantics (method extension)
+```
 
 ### Baseline (no flags)
 
-Marks what you bring in as `public`.
+Marks what you bring in as `public`. No wildcard name discovery.
 
 ```julia
 @republic using Foo                 # exported names → public
@@ -51,10 +59,11 @@ Marks what you bring in as `public`.
 
 ### `inherit=true`
 
-Discovers public-only names upstream. Imports them and marks them `public`.
+Discovers public-only names upstream, imports them, and marks them `public`.
 
 ```julia
-@republic inherit=true using Foo    # all API names → public
+@republic inherit=true using Foo    # all API names → public (using semantics)
+@republic inherit=true import Foo   # all API names → public (import semantics)
 ```
 
 ### `reexport=true`
@@ -62,8 +71,8 @@ Discovers public-only names upstream. Imports them and marks them `public`.
 Re-exports exported names (instead of marking them `public`). Replaces [Reexport.jl](https://github.com/JuliaLang/Reexport.jl).
 
 ```julia
-@republic reexport=true using Foo             # exported → re-export
-@reexport using Foo                           # equivalent shorthand
+@republic reexport=true using Foo   # exported → re-export
+@reexport using Foo                 # equivalent shorthand
 ```
 
 ### `republic=false`
@@ -71,7 +80,8 @@ Re-exports exported names (instead of marking them `public`). Replaces [Reexport
 Suppresses the `public` marking. Useful with `inherit=true` for importing the full upstream public API without republishing it.
 
 ```julia
-@republic republic=false inherit=true using Foo  # import full API, keep private
+@republic republic=false inherit=true using Foo     # import full API, keep private
+@republic republic=false inherit=true import Foo    # same, with import semantics
 ```
 
 ### Combined: full API forwarding
