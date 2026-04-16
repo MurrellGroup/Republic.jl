@@ -216,8 +216,10 @@ function republic(m::Module, inherit::Bool, reexport::Bool, do_republic::Bool, e
     _reimport = GlobalRef(@__MODULE__, :_try_reimport)
 
     if ex.head === :module
-        modules = Any[ex.args[2]]
-        ex = Expr(:toplevel, ex, :(using .$(ex.args[2])))
+        # Julia 1.14+ prepends a VersionNumber to module args
+        modname_idx = ex.args[1] isa VersionNumber ? 3 : 2
+        modules = Any[ex.args[modname_idx]]
+        ex = Expr(:toplevel, ex, :(using .$(ex.args[modname_idx])))
         # Module form always inherits public-only names
         inherit = true
     elseif ex.head::Symbol in (:using, :import) && ex.args[1].head === :(:)
