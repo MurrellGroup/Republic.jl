@@ -792,7 +792,7 @@ end
     @test_throws Exception @macroexpand @reexport badflag=true using Foo
 end
 
-#=== republic=false: import without republishing ===#
+#=== republic=false: import without forwarding ===#
 
 module XNR1
     using Republic

@@ -3,15 +3,17 @@
 [![Build Status](https://github.com/MurrellGroup/Republic.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/MurrellGroup/Republic.jl/actions/workflows/CI.yml?query=branch%3Amain)
 [![Coverage](https://codecov.io/gh/MurrellGroup/Republic.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/MurrellGroup/Republic.jl)
 
-> Cross-version public API management for Julia packages.
+> Declare, unify, and forward public APIs across Julia versions.
 
 Republic.jl manages Julia's [`public`](https://docs.julialang.org/en/v1.11/base/base/#public) visibility across module boundaries and Julia versions. It provides:
 
-- **`@public`** — declare names as public API
+- **`@public`** — declare names as public API, equivalent to the `public` keyword introduced in 1.11
 - **`@republic`** — forward upstream names into your module's public API
 - **`@reexport`** — shorthand for `@republic reexport=true`
 - **`public_names`** — returns public-but-not-exported names
 - **`exported_names`** — returns exported names
+
+The main use case for forwarding is lightweight \*Core or \*Base packages, whose types and functions you want to surface as part of your package's API. This also works for heavier packages whose interfaces you may be implementing, but prefer a qualified `@republic` import to avoid clutter.
 
 ## `@public`: Declaring Public API
 
@@ -77,7 +79,7 @@ Re-exports exported names (instead of marking them `public`). Replaces [Reexport
 
 ### `republic=false`
 
-Suppresses the `public` marking. Useful with `inherit=true` for importing the full upstream public API without republishing it.
+Suppresses the `public` marking. Useful with `inherit=true` for importing the full upstream public API without forwarding it.
 
 ```julia
 @republic republic=false inherit=true using Foo     # import full API, keep private
@@ -91,7 +93,7 @@ Suppresses the `public` marking. Useful with `inherit=true` for importing the fu
 @reexport inherit=true using Foo                # equivalent shorthand
 ```
 
-## Overriding visibility
+## Overriding visibility through pre-existing declarations
 
 Julia does not allow a name to be marked both `public` and `export`ed. Republic respects pre-existing declarations:
 

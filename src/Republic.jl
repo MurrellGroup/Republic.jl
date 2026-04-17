@@ -119,7 +119,7 @@ marks them `public`.
 
 **`republic=false`**: suppresses the `public` marking. Useful with
 `inherit=true` for importing the full upstream public API without
-republishing it.
+forwarding it.
 
 The flags are orthogonal and composable.
 
@@ -208,8 +208,8 @@ function republic(m::Module, inherit::Bool, reexport::Bool, do_republic::Bool, e
         error("@republic: syntax error")
 
     eval = GlobalRef(Core, :eval)
-    _republish = GlobalRef(@__MODULE__, :republish_names)
-    _republish_syms = GlobalRef(@__MODULE__, :republish_symbols)
+    _forward = GlobalRef(@__MODULE__, :forward_names)
+    _forward_syms = GlobalRef(@__MODULE__, :forward_symbols)
     _resolve = GlobalRef(@__MODULE__, :resolve_module)
     _mark_pub = GlobalRef(@__MODULE__, :_mark_public)
     _mark_exp = GlobalRef(@__MODULE__, :_mark_exported)
@@ -227,7 +227,7 @@ function republic(m::Module, inherit::Bool, reexport::Bool, do_republic::Bool, e
         path_parts = ex.args[1].args[1].args
         orig_names, local_names = _extract_names(ex.args[1].args[2:end])
         return Expr(:toplevel, ex,
-            :($_republish_syms($eval, $m, $_resolve($m, $(QuoteNode(path_parts))),
+            :($_forward_syms($eval, $m, $_resolve($m, $(QuoteNode(path_parts))),
                 $(QuoteNode(orig_names)), $(QuoteNode(local_names)), $reexport, $do_republic)))
     elseif ex.head === :import && all(e -> e.head in (:., :as), ex.args)
         # @republic import Foo.bar, Baz.qux, Pkg as P
@@ -251,7 +251,7 @@ function republic(m::Module, inherit::Bool, reexport::Bool, do_republic::Bool, e
                 end
             else
                 push!(out.args,
-                    :($_republish_syms($eval, $m, $_resolve($m, $(QuoteNode(path_parts))),
+                    :($_forward_syms($eval, $m, $_resolve($m, $(QuoteNode(path_parts))),
                         $(QuoteNode([orig_name])), $(QuoteNode([local_name])), $reexport, $do_republic)))
             end
             if inherit
@@ -267,7 +267,7 @@ function republic(m::Module, inherit::Bool, reexport::Bool, do_republic::Bool, e
 
     out = Expr(:toplevel, ex)
     for mod in modules
-        push!(out.args, :($_republish($eval, $m, $mod, $inherit, $reexport, $do_republic)))
+        push!(out.args, :($_forward($eval, $m, $mod, $inherit, $reexport, $do_republic)))
     end
     return out
 end
@@ -339,7 +339,7 @@ function _mark_exported(eval, m::Module, nms::Vector{Symbol})
     eval(m, Expr(:export, nms...))
 end
 
-function republish_names(eval, m::Module, upstream::Module, inherit::Bool, reexport::Bool, do_republic::Bool=true)
+function forward_names(eval, m::Module, upstream::Module, inherit::Bool, reexport::Bool, do_republic::Bool=true)
     if reexport
         _mark_exported(eval, m, exported_names(upstream))
     elseif do_republic
@@ -381,7 +381,7 @@ function reimport_names(eval, m::Module, upstream::Module, reexport::Bool, do_re
     nothing
 end
 
-function republish_symbols(eval, m::Module, upstream::Module,
+function forward_symbols(eval, m::Module, upstream::Module,
                            orig_names::Vector{Symbol}, local_names::Vector{Symbol},
                            reexport::Bool, do_republic::Bool=true)
     exported = Symbol[]
