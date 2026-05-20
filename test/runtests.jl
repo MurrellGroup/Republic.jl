@@ -1007,6 +1007,18 @@ end
     @test_throws Exception @macroexpand @republic inherit="public" using Main.Y_scope
 end
 
+# Deprecated Bool form: inherit=false ≡ omit the flag (use keyword default)
+module X_inherit_false_deprecated
+    using Republic
+    @republic inherit=false using Main.Y_scope
+end
+@testset "inherit=false: deprecated, equivalent to keyword default (:exported)" begin
+    @test :f in public_names(X_inherit_false_deprecated)             # exported names marked (default)
+    @test :g in public_names(X_inherit_false_deprecated)
+    @test !(:A in public_names(X_inherit_false_deprecated))          # public-only NOT widened
+    @test !(:B in public_names(X_inherit_false_deprecated))
+end
+
 # @reexport with the new enum
 module XRE_scope
     using Republic
