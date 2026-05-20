@@ -44,13 +44,15 @@ using Republic: @public
 
 ### The `inherit` scope
 
-`inherit` controls *which* upstream names are pulled in; the keyword still controls *how*. Defaults match each keyword's native floor (i.e. `@republic using/import Foo` behaves like raw `using/import Foo`, plus the public-marking).
+`inherit` controls *which* upstream names are inherited into the consumer module; the keyword controls *how* (visibility vs method-extension capable). Marking/forwarding to the consumer's public API is orthogonal — see `republic` and `reexport`. Defaults match each keyword's native floor (i.e. `@republic using/import Foo` inherits exactly what raw `using/import Foo` does).
 
 | Value | `using Foo` | `import Foo` |
 |---|---|---|
-| `:module` | not valid (below the floor) | module binding only (**default**) |
+| `:module` | rewritten to `using Foo: Foo` — only the module binding (exported names NOT inherited) | module binding only (**default**) |
 | `:exported` | module + exported (**default**) | module + exported, with import semantics |
 | `:public` | module + exported + public-only | module + exported + public-only, with import semantics |
+
+At the `:module` level, the using/import distinction collapses — both yield just the module binding, and no method extension applies to a module.
 
 ```julia
 @republic using Foo                  # exported names → public (default scope :exported)

@@ -1,8 +1,5 @@
 module Republic
 
-export @republic, @public, @reexport
-@public public_names, exported_names
-
 # Syntactically unreachable from user code (# prefix)
 const _PUBLIC_NAMES_KEY = Symbol("#Republic_public_names")
 
@@ -114,15 +111,19 @@ Forward upstream names as part of the current module's public API.
 **Baseline** (no flags): marks what you bring in as `public`. No wildcard
 name discovery beyond what the keyword itself injects.
 
-**`inherit`**: widens *which* upstream names are pulled in. The keyword
-(`using` vs `import`) still controls *how* (visibility vs method-extension
-capable). Accepted values:
+**`inherit`**: chooses *which* upstream names are inherited into the
+consumer module. The keyword (`using` vs `import`) controls *how* the
+inherited names are accessed (visibility vs method-extension capable).
+Marking/forwarding is orthogonal — see `republic` and `reexport`.
+Accepted values:
 
-  - `:module` — module binding only. Default for `import X`. Not valid
-    with `using` (the floor for `using` is already `:exported`).
+  - `:module` — module binding only. Default for `import X`. With
+    `using X`, the statement is rewritten as `using X: X` so that
+    exported names of `X` are *not* inherited — the using/import
+    distinction collapses here (no method extension applies to a module).
   - `:exported` — module + exported names. Default for `using X`. With
-    `import X`, pulls exported names in with `import` semantics so methods
-    can be extended (the genuinely new capability beyond raw Julia).
+    `import X`, pulls exported names in with `import` semantics so
+    methods can be extended (the genuinely new capability beyond raw Julia).
   - `:public` — module + exported + public-only names. The widest scope.
 
 Not valid with the selective form `using/import X: a, b` — the scope is
@@ -311,9 +312,30 @@ function republic(m::Module, inherit::Union{Nothing,Symbol}, reexport::Bool, do_
     else
         # @republic using Foo, Bar, Baz — floor is :exported
         scope = inherit === nothing ? :exported : inherit
-        scope === :module &&
-            error("@republic: `inherit=:module` is not valid with `using`; the natural floor for `using` is `:exported`. Use `import` if you only want the module binding.")
         modules = Any[e.args[end] for e in ex.args]
+    end
+
+    if scope === :module
+        # Narrow inheritance to just the module binding(s): rewrite
+        # `using X, Y` as `using X: X; using Y: Y` so that exported names
+        # of X and Y are NOT inherited into the consumer. Parallel to bare
+        # `import X` (and for module bindings the using/import distinction
+        # collapses — no method extension applies).
+        ex.head === :using ||
+            error("@republic: `inherit=:module` with `using` requires a plain `using …` statement")
+        out = Expr(:toplevel)
+        name_syms = Symbol[]
+        for arg in ex.args
+            leaf = arg.args[end]::Symbol
+            push!(name_syms, leaf)
+            push!(out.args, Expr(:using, Expr(:(:), arg, Expr(:., leaf))))
+        end
+        if reexport
+            push!(out.args, :($_mark_exp($eval, $m, $(QuoteNode(name_syms)))))
+        elseif do_republic
+            push!(out.args, :($_mark_pub($eval, $m, $(QuoteNode(name_syms)))))
+        end
+        return out
     end
 
     out = Expr(:toplevel, ex)
@@ -477,5 +499,8 @@ function _parse_reexport_flags(exprs::Expr...)
     end
     _parse_flags(exprs...)
 end
+
+export @republic, @public, @reexport
+@public public_names, exported_names
 
 end

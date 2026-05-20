@@ -953,15 +953,53 @@ end
     @test !(:A in public_names(X_inherit_exported_using))   # not widened
 end
 
-# Error cases
-@testset ":module is not valid with using (below the floor)" begin
-    @test_throws Exception @macroexpand @republic inherit=:module using Main.Y_scope
+# :module using X — narrows inheritance to just the module binding,
+# parallel to bare `import X` (the using/import distinction collapses for
+# the module-binding-only case since no method extension applies).
+module X_inherit_module_using
+    using Republic
+    @republic inherit=:module using Main.Y_scope
+end
+@testset "inherit=:module using: narrows inheritance to module binding only" begin
+    @test :Y_scope in public_names(X_inherit_module_using)              # module binding forwarded
+    @test !(:f in public_names(X_inherit_module_using))                 # exported names NOT forwarded
+    @test !(:A in public_names(X_inherit_module_using))                 # public-only NOT forwarded
+    @test isdefined(X_inherit_module_using, :Y_scope)                   # module accessible
+    @test !isdefined(X_inherit_module_using, :f)                        # exported names NOT inherited
+    @test !isdefined(X_inherit_module_using, :A)                        # public-only NOT inherited
+    @test X_inherit_module_using.Y_scope.f() == :original               # but qualified access works
+end
+
+# :module using multiple modules — each binding forwarded
+module Y_scope2
+    const Q = 42
+    export Q
+end
+module X_inherit_module_using_multi
+    using Republic
+    @republic inherit=:module using Main.Y_scope, Main.Y_scope2
+end
+@testset "inherit=:module using X, Y: each module binding forwarded" begin
+    @test :Y_scope in public_names(X_inherit_module_using_multi)
+    @test :Y_scope2 in public_names(X_inherit_module_using_multi)
+    @test !(:f in public_names(X_inherit_module_using_multi))
+    @test !(:Q in public_names(X_inherit_module_using_multi))
+end
+
+# reexport=true inherit=:module using — exports the module binding
+module X_inherit_module_using_reexport
+    using Republic
+    @republic reexport=true inherit=:module using Main.Y_scope
+end
+@testset "reexport=true inherit=:module using: exports module binding" begin
+    @test :Y_scope in exported_names(X_inherit_module_using_reexport)
+    @test !(:f in exported_names(X_inherit_module_using_reexport))
 end
 
 @testset "inherit=… with selective colon form is not valid" begin
     @test_throws Exception @macroexpand @republic inherit=:exported using Main.Y_scope: f
     @test_throws Exception @macroexpand @republic inherit=:public import Main.Y_scope: f
-    @test_throws Exception @macroexpand @republic inherit=:module using Main.Y_scope: f
+    @test_throws Exception @macroexpand @republic inherit=:module import Main.Y_scope: f
 end
 
 @testset "unknown inherit value errors" begin
