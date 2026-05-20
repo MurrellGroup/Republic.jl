@@ -121,14 +121,14 @@ end
 
 ## Migration
 
-The default behavior of `@republic` changed in v2.0:
+The default behavior of `@republic` changed in v2:
 
-| v1.x | v2.0 equivalent |
+| v1 | v2 equivalent |
 |---|---|
 | `@republic using Foo` | `@republic inherit=:public using Foo` |
 | `@republic reexport=true using Foo` | `@republic reexport=true inherit=:public using Foo` |
 
-The v1.x default performed wildcard discovery. In v2.0, the baseline is explicit — use `inherit=:public` to opt into the widest discovery. `reexport=true` no longer implies `inherit`.
+The v1.x default performed wildcard discovery. In v2, the baseline is explicit — use `inherit=:public` to opt into the widest discovery. `reexport=true` no longer implies `inherit`.
 
 The Boolean `inherit=true`/`inherit=false` accepted in v2.0–v2.1 is deprecated; use `inherit=:public` (or omit the flag) instead.
 
