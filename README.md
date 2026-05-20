@@ -31,7 +31,7 @@ using Republic: @public
 
 `@republic` preserves `using`/`import` semantics and has three orthogonal, composable flags:
 
-- **`inherit`** — discover and import public-only names from upstream (default: `false`)
+- **`inherit`** — widen *which* upstream names are pulled in (`:module`, `:exported`, or `:public`; default tracks the keyword)
 - **`reexport`** — re-export exported names instead of marking them `public` (default: `false`)
 - **`republic`** — mark imported names as `public` (default: `true`)
 
@@ -42,30 +42,34 @@ using Republic: @public
 - **`using`** brings names into scope for *use* (no method extension)
 - **`import`** brings names into scope for *extension* (methods can be added)
 
-With `inherit=true`, this extends to wildcard discovery:
+### The `inherit` scope
+
+`inherit` controls *which* upstream names are pulled in; the keyword still controls *how*. Defaults match each keyword's native floor (i.e. `@republic using/import Foo` behaves like raw `using/import Foo`, plus the public-marking).
+
+| Value | `using Foo` | `import Foo` |
+|---|---|---|
+| `:module` | not valid (below the floor) | module binding only (**default**) |
+| `:exported` | module + exported (**default**) | module + exported, with import semantics |
+| `:public` | module + exported + public-only | module + exported + public-only, with import semantics |
 
 ```julia
-@republic inherit=true using Foo    # all API names available, using semantics
-@republic inherit=true import Foo   # all API names available, import semantics (method extension)
+@republic using Foo                  # exported names → public (default scope :exported)
+@republic inherit=:public using Foo  # + public-only names → public
+@republic import Foo                 # module binding only → public (default scope :module)
+@republic inherit=:exported import Foo  # + exported names, with import semantics
+@republic inherit=:public import Foo    # + exported + public-only, with import semantics
 ```
+
+`inherit` is not valid with the selective form `using/import Foo: a, b` — the scope is the names you listed.
 
 ### Baseline (no flags)
 
-Marks what you bring in as `public`. No wildcard name discovery.
+Marks what the keyword brings in as `public`. No widening.
 
 ```julia
 @republic using Foo                 # exported names → public
 @republic using Foo: bar, baz       # specific names → public
 @republic import Foo: bar           # import semantics + public
-```
-
-### `inherit=true`
-
-Discovers public-only names upstream, imports them, and marks them `public`.
-
-```julia
-@republic inherit=true using Foo    # all API names → public (using semantics)
-@republic inherit=true import Foo   # all API names → public (import semantics)
 ```
 
 ### `reexport=true`
@@ -79,18 +83,18 @@ Re-exports exported names (instead of marking them `public`). Replaces [Reexport
 
 ### `republic=false`
 
-Suppresses the `public` marking. Useful with `inherit=true` for importing the full upstream public API without forwarding it.
+Suppresses the `public` marking. Useful with `inherit=:public` for importing the full upstream public API without forwarding it (e.g. package extensions).
 
 ```julia
-@republic republic=false inherit=true using Foo     # import full API, keep private
-@republic republic=false inherit=true import Foo    # same, with import semantics
+@republic republic=false inherit=:public using Foo     # import full API, keep private
+@republic republic=false inherit=:public import Foo    # same, with import semantics
 ```
 
 ### Combined: full API forwarding
 
 ```julia
-@republic reexport=true inherit=true using Foo  # re-export + inherit public
-@reexport inherit=true using Foo                # equivalent shorthand
+@republic reexport=true inherit=:public using Foo  # re-export + inherit public
+@reexport inherit=:public using Foo                # equivalent shorthand
 ```
 
 ## Overriding visibility through pre-existing declarations
@@ -100,29 +104,31 @@ Julia does not allow a name to be marked both `public` and `export`ed. Republic 
 ```julia
 module MyPackage
     using Republic
-    export bar                                  # already exported
-    @republic inherit=true using Foo            # skips `public bar`
+    export bar                                       # already exported
+    @republic inherit=:public using Foo              # skips `public bar`
 end
 ```
 
 ```julia
 module MyPackage
     using Republic
-    @public bar                                 # already public
-    @republic reexport=true using Foo           # skips `export bar`
+    @public bar                                      # already public
+    @republic reexport=true using Foo                # skips `export bar`
 end
 ```
 
-## Migration from v1.x
+## Migration
 
 The default behavior of `@republic` changed in v2.0:
 
 | v1.x | v2.0 equivalent |
 |---|---|
-| `@republic using Foo` | `@republic inherit=true using Foo` |
-| `@republic reexport=true using Foo` | `@republic reexport=true inherit=true using Foo` |
+| `@republic using Foo` | `@republic inherit=:public using Foo` |
+| `@republic reexport=true using Foo` | `@republic reexport=true inherit=:public using Foo` |
 
-The v1.x default performed wildcard discovery. In v2.0, the baseline is explicit — use `inherit=true` to opt into discovery. `reexport=true` no longer implies `inherit`.
+The v1.x default performed wildcard discovery. In v2.0, the baseline is explicit — use `inherit=:public` to opt into the widest discovery. `reexport=true` no longer implies `inherit`.
+
+The Boolean `inherit=true`/`inherit=false` accepted in v2.0–v2.1 is deprecated; use `inherit=:public` (or omit the flag) instead.
 
 ## Acknowledgments
 

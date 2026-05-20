@@ -877,6 +877,108 @@ end
     @test mod.B == 2
 end
 
+#=== inherit ∈ {:module, :exported, :public} scope enum ===#
+
+module Y_scope
+    using Republic: @public
+    f() = :original
+    g(x) = :g
+    const A = 1
+    const B = 2
+    export f, g
+    @public A, B
+end
+
+# :exported import — adds exported names with import semantics, leaves public-only behind
+module X_inherit_exported_import
+    using Republic
+    @republic inherit=:exported import Main.Y_scope
+    f(x::Int) = :extended  # method extension only possible with import semantics
+end
+@testset "inherit=:exported import: exported names with import semantics, no public-only" begin
+    @test :f in public_names(X_inherit_exported_import)              # exported upstream → public here
+    @test :g in public_names(X_inherit_exported_import)
+    @test !(:A in public_names(X_inherit_exported_import))           # public-only stays behind
+    @test !(:B in public_names(X_inherit_exported_import))
+    @test X_inherit_exported_import.f() == :original
+    @test X_inherit_exported_import.f(1) == :extended                # method extension worked
+    @test Main.Y_scope.f(1) == :extended
+    @test !isdefined(X_inherit_exported_import, :A)                  # A not brought in
+end
+
+# :public — same as deprecated inherit=true
+module X_inherit_public_import
+    using Republic
+    @republic inherit=:public import Main.Y_scope
+end
+@testset "inherit=:public import: full API with import semantics" begin
+    @test :f in public_names(X_inherit_public_import)
+    @test :A in public_names(X_inherit_public_import)
+    @test :B in public_names(X_inherit_public_import)
+    @test X_inherit_public_import.A == 1
+end
+
+# :module — explicit floor for import (default behavior, but spelled out)
+module X_inherit_module_import
+    using Republic
+    @republic inherit=:module import Main.Y_scope
+end
+@testset "inherit=:module import: only the module binding" begin
+    @test isdefined(X_inherit_module_import, :Y_scope)              # module binding present
+    @test !(:f in public_names(X_inherit_module_import))            # no names forwarded
+    @test !(:A in public_names(X_inherit_module_import))
+    @test !isdefined(X_inherit_module_import, :f)                   # names not brought in
+    @test !isdefined(X_inherit_module_import, :A)
+end
+
+# :public using — same as deprecated inherit=true using
+module X_inherit_public_using
+    using Republic
+    @republic inherit=:public using Main.Y_scope
+end
+@testset "inherit=:public using: exported + public" begin
+    @test :f in public_names(X_inherit_public_using)
+    @test :A in public_names(X_inherit_public_using)
+    @test :B in public_names(X_inherit_public_using)
+end
+
+# :exported using — redundant with default, accepted as no-op
+module X_inherit_exported_using
+    using Republic
+    @republic inherit=:exported using Main.Y_scope
+end
+@testset "inherit=:exported using: redundant no-op vs default" begin
+    @test :f in public_names(X_inherit_exported_using)
+    @test :g in public_names(X_inherit_exported_using)
+    @test !(:A in public_names(X_inherit_exported_using))   # not widened
+end
+
+# Error cases
+@testset ":module is not valid with using (below the floor)" begin
+    @test_throws Exception @macroexpand @republic inherit=:module using Main.Y_scope
+end
+
+@testset "inherit=… with selective colon form is not valid" begin
+    @test_throws Exception @macroexpand @republic inherit=:exported using Main.Y_scope: f
+    @test_throws Exception @macroexpand @republic inherit=:public import Main.Y_scope: f
+    @test_throws Exception @macroexpand @republic inherit=:module using Main.Y_scope: f
+end
+
+@testset "unknown inherit value errors" begin
+    @test_throws Exception @macroexpand @republic inherit=:everything using Main.Y_scope
+    @test_throws Exception @macroexpand @republic inherit="public" using Main.Y_scope
+end
+
+# @reexport with the new enum
+module XRE_scope
+    using Republic
+    @reexport inherit=:public using Main.Y_scope
+end
+@testset "@reexport inherit=:public" begin
+    @test :f in exported_names(XRE_scope)
+    @test :A in public_names(XRE_scope)
+end
+
 #=== Julia 1.11+ tests (native `public` keyword) ===#
 
 if VERSION >= v"1.11.0-DEV.469"

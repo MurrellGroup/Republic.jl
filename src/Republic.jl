@@ -1,5 +1,8 @@
 module Republic
 
+export @republic, @public, @reexport
+@public public_names, exported_names
+
 # Syntactically unreachable from user code (# prefix)
 const _PUBLIC_NAMES_KEY = Symbol("#Republic_public_names")
 
@@ -104,37 +107,50 @@ end
 
 
 """
-    @republic [inherit=true] [reexport=true] [republic=false] using/import ...
+    @republic [inherit=…] [reexport=true] [republic=false] using/import ...
 
 Forward upstream names as part of the current module's public API.
 
 **Baseline** (no flags): marks what you bring in as `public`. No wildcard
-name discovery.
+name discovery beyond what the keyword itself injects.
 
-**`inherit=true`**: discovers public-only names upstream, imports them, and
-marks them `public`.
+**`inherit`**: widens *which* upstream names are pulled in. The keyword
+(`using` vs `import`) still controls *how* (visibility vs method-extension
+capable). Accepted values:
+
+  - `:module` — module binding only. Default for `import X`. Not valid
+    with `using` (the floor for `using` is already `:exported`).
+  - `:exported` — module + exported names. Default for `using X`. With
+    `import X`, pulls exported names in with `import` semantics so methods
+    can be extended (the genuinely new capability beyond raw Julia).
+  - `:public` — module + exported + public-only names. The widest scope.
+
+Not valid with the selective form `using/import X: a, b` — the scope is
+the names you listed.
 
 **`reexport=true`**: re-exports exported names (instead of marking them
 `public`).
 
 **`republic=false`**: suppresses the `public` marking. Useful with
-`inherit=true` for importing the full upstream public API without
-forwarding it.
+`inherit=:public` for importing the full upstream public API without
+forwarding it (e.g. package extensions).
 
 The flags are orthogonal and composable.
 
 # Examples
 
 ```julia
-@republic using Foo                                # exported names → public
-@republic inherit=true using Foo                   # + public-only names → public
-@republic reexport=true using Foo                  # exported → re-export
-@republic reexport=true inherit=true using Foo     # full API forwarding
-@republic republic=false inherit=true using Foo    # import full API, keep private
-@republic using Foo: bar, baz                      # specific names → public
-@republic reexport=true using Foo: bar             # preserves per-name visibility
-@republic import Foo: bar                          # import semantics + public
-@republic begin                                    # blocks
+@republic using Foo                                  # exported names → public
+@republic inherit=:public using Foo                  # + public-only names → public
+@republic reexport=true using Foo                    # exported → re-export
+@republic reexport=true inherit=:public using Foo    # full API forwarding
+@republic republic=false inherit=:public using Foo   # import full API, keep private
+@republic using Foo: bar, baz                        # specific names → public
+@republic reexport=true using Foo: bar               # preserves per-name visibility
+@republic inherit=:exported import Foo               # exported names with method-extension
+@republic inherit=:public import Foo                 # full API with method-extension
+@republic import Foo: bar                            # import semantics + public
+@republic begin                                      # blocks
     using Foo
     using Bar
 end
@@ -166,12 +182,37 @@ function _parse_flag(ex::Expr)
     name = ex.args[1]::Symbol
     name in (:inherit, :reexport, :republic) ||
         error("@republic: unknown flag `$name`. Expected `inherit`, `reexport`, or `republic`")
-    value = ex.args[2]::Bool
+    raw = ex.args[2]
+    value = if raw isa Bool
+        raw
+    elseif raw isa QuoteNode && raw.value isa Symbol
+        raw.value
+    else
+        error("@republic: invalid value for `$name`: `$(repr(raw))`")
+    end
     return name, value
 end
 
+# Map deprecated Bool to the new scope enum (or `nothing` for "use default").
+function _normalize_inherit(value)
+    if value isa Bool
+        if value
+            Base.depwarn("`inherit=true` is deprecated; use `inherit=:public`.", :republic)
+            return :public
+        else
+            Base.depwarn("`inherit=false` is deprecated; omit the flag (the per-keyword default already matches).", :republic)
+            return nothing
+        end
+    end
+    value isa Symbol ||
+        error("@republic: `inherit` expects a Symbol (:module, :exported, or :public), got `$(repr(value))`")
+    value in (:module, :exported, :public) ||
+        error("@republic: `inherit` must be :module, :exported, or :public; got `:$value`")
+    return value
+end
+
 function _parse_flags(exprs::Expr...)
-    inherit = false
+    inherit::Union{Nothing,Symbol} = nothing
     reexport = false
     do_republic = true
     seen_inherit = seen_reexport = seen_republic = false
@@ -180,14 +221,18 @@ function _parse_flags(exprs::Expr...)
         if name === :inherit
             seen_inherit && error("@republic: duplicate flag `$name`")
             seen_inherit = true
-            inherit = value
+            inherit = _normalize_inherit(value)
         elseif name === :reexport
             seen_reexport && error("@republic: duplicate flag `$name`")
             seen_reexport = true
+            value isa Bool ||
+                error("@republic: `reexport` expects `true` or `false`, got `$(repr(value))`")
             reexport = value
         elseif name === :republic
             seen_republic && error("@republic: duplicate flag `$name`")
             seen_republic = true
+            value isa Bool ||
+                error("@republic: `republic` expects `true` or `false`, got `$(repr(value))`")
             do_republic = value
         end
     end
@@ -195,9 +240,9 @@ function _parse_flags(exprs::Expr...)
 end
 
 
-republic(m::Module, inherit::Bool, reexport::Bool, do_republic::Bool, l::LineNumberNode) = l
+republic(m::Module, inherit::Union{Nothing,Symbol}, reexport::Bool, do_republic::Bool, l::LineNumberNode) = l
 
-function republic(m::Module, inherit::Bool, reexport::Bool, do_republic::Bool, ex::Expr)
+function republic(m::Module, inherit::Union{Nothing,Symbol}, reexport::Bool, do_republic::Bool, ex::Expr)
     ex = macroexpand(m, ex)
     if ex.head === :block
         return Expr(:block, map(e -> republic(m, inherit, reexport, do_republic, e), ex.args)...)
@@ -220,17 +265,20 @@ function republic(m::Module, inherit::Bool, reexport::Bool, do_republic::Bool, e
         modname_idx = ex.args[1] isa VersionNumber ? 3 : 2
         modules = Any[ex.args[modname_idx]]
         ex = Expr(:toplevel, ex, :(using .$(ex.args[modname_idx])))
-        # Module form always inherits public-only names
-        inherit = true
+        # Module form always inherits the full public API
+        scope = :public
     elseif ex.head::Symbol in (:using, :import) && ex.args[1].head === :(:)
         # @republic {using, import} Foo: bar, baz, qux as q
+        inherit === nothing ||
+            error("@republic: `inherit=…` is not valid with selective `using/import X: …`; the scope is the names you listed")
         path_parts = ex.args[1].args[1].args
         orig_names, local_names = _extract_names(ex.args[1].args[2:end])
         return Expr(:toplevel, ex,
             :($_forward_syms($eval, $m, $_resolve($m, $(QuoteNode(path_parts))),
                 $(QuoteNode(orig_names)), $(QuoteNode(local_names)), $reexport, $do_republic)))
     elseif ex.head === :import && all(e -> e.head in (:., :as), ex.args)
-        # @republic import Foo.bar, Baz.qux, Pkg as P
+        # @republic import Foo.bar, Baz.qux, Pkg as P — floor is :module
+        scope = inherit === nothing ? :module : inherit
         out = Expr(:toplevel, ex)
         for arg in ex.args
             if arg.head === :as
@@ -254,20 +302,23 @@ function republic(m::Module, inherit::Bool, reexport::Bool, do_republic::Bool, e
                     :($_forward_syms($eval, $m, $_resolve($m, $(QuoteNode(path_parts))),
                         $(QuoteNode([orig_name])), $(QuoteNode([local_name])), $reexport, $do_republic)))
             end
-            if inherit
+            if scope !== :module
                 push!(out.args, :($_reimport($eval, $m, $(QuoteNode(local_name)),
-                    $reexport, $do_republic)))
+                    $(QuoteNode(scope)), $reexport, $do_republic)))
             end
         end
         return out
     else
-        # @republic using Foo, Bar, Baz
+        # @republic using Foo, Bar, Baz — floor is :exported
+        scope = inherit === nothing ? :exported : inherit
+        scope === :module &&
+            error("@republic: `inherit=:module` is not valid with `using`; the natural floor for `using` is `:exported`. Use `import` if you only want the module binding.")
         modules = Any[e.args[end] for e in ex.args]
     end
 
     out = Expr(:toplevel, ex)
     for mod in modules
-        push!(out.args, :($_forward($eval, $m, $mod, $inherit, $reexport, $do_republic)))
+        push!(out.args, :($_forward($eval, $m, $mod, $(QuoteNode(scope)), $reexport, $do_republic)))
     end
     return out
 end
@@ -339,14 +390,16 @@ function _mark_exported(eval, m::Module, nms::Vector{Symbol})
     eval(m, Expr(:export, nms...))
 end
 
-function forward_names(eval, m::Module, upstream::Module, inherit::Bool, reexport::Bool, do_republic::Bool=true)
+function forward_names(eval, m::Module, upstream::Module, scope::Symbol, reexport::Bool, do_republic::Bool=true)
+    # `using` floor is :exported — the original `using X` statement already
+    # brought exported names into m; here we just mark them.
     if reexport
         _mark_exported(eval, m, exported_names(upstream))
     elseif do_republic
         _mark_public(eval, m, exported_names(upstream))
     end
-    # Inherit: also discover and import public-only names
-    if inherit
+    # :public widens to also discover public-only names (with `using` semantics)
+    if scope === :public
         pub = public_names(upstream)
         fqn = fullname(upstream)
         for name in pub
@@ -357,18 +410,18 @@ function forward_names(eval, m::Module, upstream::Module, inherit::Bool, reexpor
     nothing
 end
 
-function _try_reimport(eval, m::Module, name::Symbol, reexport::Bool, do_republic::Bool)
+function _try_reimport(eval, m::Module, name::Symbol, scope::Symbol, reexport::Bool, do_republic::Bool)
     isdefined(m, name) || return nothing
     val = getfield(m, name)
     val isa Module || return nothing
-    reimport_names(eval, m, val, reexport, do_republic)
+    reimport_names(eval, m, val, scope, reexport, do_republic)
 end
 
-function reimport_names(eval, m::Module, upstream::Module, reexport::Bool, do_republic::Bool)
+function reimport_names(eval, m::Module, upstream::Module, scope::Symbol, reexport::Bool, do_republic::Bool)
     fqn = fullname(upstream)
     exp = exported_names(upstream)
-    pub = public_names(upstream)
-    # Import all visible names with import semantics (method extension possible)
+    pub = scope === :public ? public_names(upstream) : Symbol[]
+    # Import the in-scope names with import semantics (method extension possible)
     for name in Iterators.flatten((exp, pub))
         eval(m, Expr(:import, Expr(:(:), Expr(:., fqn...), Expr(:., name))))
     end
@@ -399,12 +452,12 @@ function forward_symbols(eval, m::Module, upstream::Module,
 end
 
 """
-    @reexport [inherit=true] [republic=false] using/import ...
+    @reexport [inherit=…] [republic=false] using/import ...
 
 Shorthand for `@republic reexport=true ...`. See [`@republic`](@ref).
 """
 macro reexport(ex::Expr)
-    esc(republic(__module__, false, true, true, ex))
+    esc(republic(__module__, nothing, true, true, ex))
 end
 
 macro reexport(f1::Expr, ex::Expr)
@@ -424,8 +477,5 @@ function _parse_reexport_flags(exprs::Expr...)
     end
     _parse_flags(exprs...)
 end
-
-export @republic, @public, @reexport
-@public public_names, exported_names
 
 end
