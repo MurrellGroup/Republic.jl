@@ -1,4 +1,4 @@
-using Republic: Republic, @republic, @reexport, @public, public_names, exported_names
+using Republic: Republic, @republic, @reexport, @public, public_names, exported_names, ispublic, isexported
 using Test
 
 #=== @public macro ===#
@@ -10,7 +10,7 @@ module Pub1
 end
 @testset "@public: single name" begin
     @test :A in public_names(Pub1)
-    @test !Base.isexported(Pub1, :A)
+    @test !isexported(Pub1, :A)
 end
 
 module Pub2
@@ -40,6 +40,50 @@ end
 @testset "@public: mixed tuple with macro" begin
     @test :A in public_names(Pub4)
     @test Symbol("@mymac") in public_names(Pub4)
+end
+
+@testset "@public: errors on already-exported name (all versions)" begin
+    err = try
+        @eval module PubExpErr
+            using Republic: @public
+            const A = 1
+            export A
+            @public A
+        end
+        nothing
+    catch e
+        e
+    end
+    @test err isa LoadError
+    @test occursin("cannot declare PubExpErr.A public; it is already declared exported",
+                   sprint(showerror, err.error))
+end
+
+module PubDup
+    using Republic: @public
+    const A = 1
+    @public A
+    @public A
+end
+@testset "@public: duplicate declarations allowed, storage deduped" begin
+    @test count(==(:A), public_names(PubDup)) == 1
+end
+
+#=== Predicates ===#
+
+module Pred1
+    using Republic: @public
+    const E = 1; const P = 2; const _Priv = 3
+    export E
+    @public P
+end
+@testset "ispublic / isexported" begin
+    @test ispublic(Pred1, :P)
+    @test ispublic(Pred1, :E)   # exported names are public (Base semantics)
+    @test !ispublic(Pred1, :_Priv)
+    @test isexported(Pred1, :E)
+    @test !isexported(Pred1, :P)
+    @test !isexported(Pred1, :_Priv)
 end
 
 #=== Discovery API ===#
@@ -84,7 +128,7 @@ module X1
 end
 @testset "baseline: exported upstream → public" begin
     @test :Z1 in public_names(X1)
-    @test !Base.isexported(X1, :Z1)
+    @test !isexported(X1, :Z1)
     @test X1.Z1 == 1
 end
 
@@ -113,8 +157,8 @@ end
 @testset "inherit=true: exported + public → all public" begin
     @test :A in public_names(X2)
     @test :B in public_names(X2)
-    @test !Base.isexported(X2, :A)
-    @test !Base.isexported(X2, :B)
+    @test !isexported(X2, :A)
+    @test !isexported(X2, :B)
     @test X2.A == 1
     @test X2.B == 2
 end
@@ -136,8 +180,8 @@ end
 @testset "inherit=true: multiple modules" begin
     @test :Z3 in public_names(X3)
     @test :Z4 in public_names(X3)
-    @test !Base.isexported(X3, :Z3)
-    @test !Base.isexported(X3, :Z4)
+    @test !isexported(X3, :Z3)
+    @test !isexported(X3, :Z4)
     @test X3.Z3 == 3
     @test X3.Z4 == 4
 end
@@ -157,8 +201,8 @@ end
 @testset "baseline: colon-qualified → all public" begin
     @test :Z5 in public_names(X4)
     @test :Z6 in public_names(X4)
-    @test !Base.isexported(X4, :Z5)
-    @test !Base.isexported(X4, :Z6)
+    @test !isexported(X4, :Z5)
+    @test !isexported(X4, :Z6)
     @test X4.Z5 == 5
     @test X4.Z6 == 6
 end
@@ -216,8 +260,8 @@ end
 @testset "baseline: import dot-qualified → all public" begin
     @test :Z7 in public_names(X5)
     @test :Z8 in public_names(X5)
-    @test !Base.isexported(X5, :Z7)
-    @test !Base.isexported(X5, :Z8)
+    @test !isexported(X5, :Z7)
+    @test !isexported(X5, :Z8)
     @test X5.Z7 == 7
     @test X5.Z8 == 8
 end
@@ -233,7 +277,7 @@ end
 @testset "inherit=true: block syntax" begin
     @test :Z3 in public_names(X6)
     @test :Z4 in public_names(X6)
-    @test !Base.isexported(X6, :Z3)
+    @test !isexported(X6, :Z3)
 end
 
 # Module definition (always inherits)
@@ -251,8 +295,8 @@ end
     @test :Inner in public_names(X7)
     @test :W in public_names(X7)
     @test :V in public_names(X7)
-    @test !Base.isexported(X7, :W)
-    @test !Base.isexported(X7, :V)
+    @test !isexported(X7, :W)
+    @test !isexported(X7, :V)
     @test X7.W == 42
     @test X7.V == 99
 end
@@ -272,7 +316,7 @@ end
 @testset "baseline: as aliases → all public" begin
     @test :Alias_E in public_names(X_as)
     @test :Alias_P in public_names(X_as)
-    @test !Base.isexported(X_as, :Alias_E)
+    @test !isexported(X_as, :Alias_E)
     @test X_as.Alias_E == 1
     @test X_as.Alias_P == 2
 end
@@ -292,7 +336,7 @@ module X_mod_as
 end
 @testset "baseline: import Module as Alias → public" begin
     @test :YMA in public_names(X_mod_as)
-    @test !Base.isexported(X_mod_as, :YMA)
+    @test !isexported(X_mod_as, :YMA)
     @test X_mod_as.YMA === Y_mod_as_wrap.Y_mod_as
 end
 
@@ -304,7 +348,7 @@ end
 @testset "baseline: import dot-qualified with alias → all public" begin
     @test :E2 in public_names(X_dot_as)
     @test :P2 in public_names(X_dot_as)
-    @test !Base.isexported(X_dot_as, :E2)
+    @test !isexported(X_dot_as, :E2)
     @test X_dot_as.E2 == 1
     @test X_dot_as.P2 == 2
 end
@@ -326,7 +370,7 @@ module X_macro
 end
 @testset "baseline: macroexpand" begin
     @test :A in public_names(X_macro)
-    @test !Base.isexported(X_macro, :A)
+    @test !isexported(X_macro, :A)
 end
 
 #=== reexport=true: preserves upstream visibility ===#
@@ -338,7 +382,7 @@ end
 @testset "reexport=true inherit=true: preserves visibility" begin
     @test :A in exported_names(XR1)
     @test :B in public_names(XR1)
-    @test !Base.isexported(XR1, :B)
+    @test !isexported(XR1, :B)
     @test XR1.A == 1
     @test XR1.B == 2
 end
@@ -350,7 +394,7 @@ end
 @testset "reexport=true: colon-qualified preserves visibility" begin
     @test :Z5 in exported_names(XR2)
     @test :Z6 in public_names(XR2)
-    @test !Base.isexported(XR2, :Z6)
+    @test !isexported(XR2, :Z6)
     @test XR2.Z5 == 5
     @test XR2.Z6 == 6
 end
@@ -362,7 +406,7 @@ end
 @testset "reexport=true: as aliases preserve visibility" begin
     @test :RE in exported_names(XR3)
     @test :RP in public_names(XR3)
-    @test !Base.isexported(XR3, :RP)
+    @test !isexported(XR3, :RP)
     @test XR3.RE == 1
     @test XR3.RP == 2
 end
@@ -374,7 +418,7 @@ end
 @testset "reexport=true: import dot-qualified preserves visibility" begin
     @test :Z7 in exported_names(XR4)
     @test :Z8 in public_names(XR4)
-    @test !Base.isexported(XR4, :Z8)
+    @test !isexported(XR4, :Z8)
 end
 
 # reexport=true with export-only module behaves like Reexport
@@ -405,7 +449,7 @@ end
 @testset "reexport=true inherit=true: block syntax" begin
     @test :Z3 in exported_names(XR5)
     @test :Z4 in public_names(XR5)
-    @test !Base.isexported(XR5, :Z4)
+    @test !isexported(XR5, :Z4)
     @test XR5.Z3 == 3
     @test XR5.Z4 == 4
 end
@@ -534,7 +578,7 @@ end
 @testset "reexport + inherit compose" begin
     @test :A in exported_names(X_compose)   # exported → re-exported
     @test :B in public_names(X_compose)     # public → imported + public
-    @test !Base.isexported(X_compose, :B)
+    @test !isexported(X_compose, :B)
     @test X_compose.A == 1
     @test X_compose.B == 2
 end
@@ -672,7 +716,7 @@ end
     @test :Y_bare_import in exported_names(X_bare_import_reexport)  # module re-exported
     @test :f in exported_names(X_bare_import_reexport)              # exported upstream → re-exported
     @test :A in public_names(X_bare_import_reexport)                # public upstream → public
-    @test !Base.isexported(X_bare_import_reexport, :A)
+    @test !isexported(X_bare_import_reexport, :A)
 end
 
 # inherit=true import with republic=false
@@ -708,7 +752,7 @@ end
 @testset "@reexport: inherit=true" begin
     @test :A in exported_names(XRE2)
     @test :B in public_names(XRE2)
-    @test !Base.isexported(XRE2, :B)
+    @test !isexported(XRE2, :B)
     @test XRE2.A == 1
     @test XRE2.B == 2
 end
@@ -720,7 +764,7 @@ end
 @testset "@reexport: colon-qualified preserves visibility" begin
     @test :Z5 in exported_names(XRE3)
     @test :Z6 in public_names(XRE3)
-    @test !Base.isexported(XRE3, :Z6)
+    @test !isexported(XRE3, :Z6)
     @test XRE3.Z5 == 5
     @test XRE3.Z6 == 6
 end
@@ -732,7 +776,7 @@ end
 @testset "@reexport: import dot-qualified preserves visibility" begin
     @test :Z7 in exported_names(XRE4)
     @test :Z8 in public_names(XRE4)
-    @test !Base.isexported(XRE4, :Z8)
+    @test !isexported(XRE4, :Z8)
 end
 
 module XRE5
@@ -757,7 +801,7 @@ end
 @testset "@reexport: inherit=true block syntax" begin
     @test :Z3 in exported_names(XRE6)
     @test :Z4 in public_names(XRE6)
-    @test !Base.isexported(XRE6, :Z4)
+    @test !isexported(XRE6, :Z4)
     @test XRE6.Z3 == 3
     @test XRE6.Z4 == 4
 end

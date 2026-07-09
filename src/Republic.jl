@@ -59,10 +59,43 @@ the names for cross-version discovery via [`public_names`](@ref).
 macro public(symbols_expr)
     syms = _get_public_symbols(symbols_expr)
     mod = __module__
+    for sym in syms
+        # Match Julia 1.11+'s native error (on 1.11+ `Expr(:public, ...)` would
+        # throw this at eval time; throwing here keeps pre-1.11 consistent)
+        Base.isexported(mod, sym) &&
+            error("cannot declare $(nameof(mod)).$sym public; it is already declared exported")
+    end
     _ensure_storage(mod)
-    append!(_get_storage(mod), syms)
+    storage = _get_storage(mod)
+    for sym in syms
+        # Duplicate `public` declarations are legal on 1.11+; keep storage deduped
+        sym in storage || push!(storage, sym)
+    end
     @static VERSION >= v"1.11.0-DEV.469" ? esc(Expr(:public, syms...)) : nothing
 end
+
+
+"""
+    ispublic(mod::Module, name::Symbol) -> Bool
+
+Whether `name` is part of the public API of `mod` (declared `public` or
+`export`ed). Matches `Base.ispublic` semantics; on Julia versions without
+the `public` keyword, falls back to Republic's per-module storage.
+"""
+function ispublic(mod::Module, name::Symbol)
+    @static if VERSION >= v"1.11.0-DEV.469"
+        return Base.ispublic(mod, name)
+    else
+        return Base.isexported(mod, name) || name in _get_storage(mod)
+    end
+end
+
+"""
+    isexported(mod::Module, name::Symbol) -> Bool
+
+Whether `name` is `export`ed from `mod`. Same as `Base.isexported`.
+"""
+isexported(mod::Module, name::Symbol) = Base.isexported(mod, name)
 
 
 """
@@ -73,7 +106,7 @@ Return names that are `export`ed from `mod`.
 See also: [`public_names`](@ref)
 """
 function exported_names(mod::Module)
-    filter(n -> Base.isexported(mod, n), names(mod; all=true, imported=true))
+    filter(n -> isexported(mod, n), names(mod; all=true, imported=true))
 end
 
 """
@@ -90,16 +123,11 @@ form the complete public API of a module.
 """
 function public_names(mod::Module)
     @static if VERSION >= v"1.11.0-DEV.469"
-        filter(n -> Base.ispublic(mod, n) && !Base.isexported(mod, n),
+        filter(n -> ispublic(mod, n) && !isexported(mod, n),
                names(mod; all=true, imported=true))
     else
-        filter(n -> !Base.isexported(mod, n), _get_storage(mod))
+        filter(n -> !isexported(mod, n), _get_storage(mod))
     end
-end
-
-function _is_visible(mod::Module, name::Symbol)
-    Base.isexported(mod, name) && return true
-    @static VERSION >= v"1.11.0-DEV.469" ? Base.ispublic(mod, name) : name in _get_storage(mod)
 end
 
 
@@ -392,11 +420,15 @@ end
 
 function _mark_public(eval, m::Module, nms::Vector{Symbol})
     # Filter out names already exported in m — Julia errors on public-after-export
-    filter!(n -> !Base.isexported(m, n), nms)
+    filter!(n -> !isexported(m, n), nms)
     isempty(nms) && return
-    # Always track for cross-version discovery
+    # Always track for cross-version discovery (deduped — pre-1.11
+    # `public_names` returns storage directly)
     _ensure_storage(m)
-    append!(_get_storage(m), nms)
+    storage = _get_storage(m)
+    for n in nms
+        n in storage || push!(storage, n)
+    end
     # Emit native keyword on 1.11+
     @static if VERSION >= v"1.11.0-DEV.469"
         eval(m, Expr(:public, nms...))
@@ -404,10 +436,9 @@ function _mark_public(eval, m::Module, nms::Vector{Symbol})
 end
 
 function _mark_exported(eval, m::Module, nms::Vector{Symbol})
-    @static if VERSION >= v"1.11.0-DEV.469"
-        # Filter out names already public (not exported) in m — Julia errors on export-after-public
-        filter!(n -> !Base.ispublic(m, n) || Base.isexported(m, n), nms)
-    end
+    # Filter out names already public (not exported) in m — Julia errors on
+    # export-after-public (filtered on all versions for consistent behavior)
+    filter!(n -> !ispublic(m, n) || isexported(m, n), nms)
     isempty(nms) && return
     eval(m, Expr(:export, nms...))
 end
@@ -462,9 +493,9 @@ function forward_symbols(eval, m::Module, upstream::Module,
     exported = Symbol[]
     public_only = Symbol[]
     for (orig, local_name) in zip(orig_names, local_names)
-        if reexport && Base.isexported(upstream, orig)
+        if reexport && isexported(upstream, orig)
             push!(exported, local_name)
-        elseif do_republic && _is_visible(upstream, orig)
+        elseif do_republic && ispublic(upstream, orig)
             push!(public_only, local_name)
         end
     end
@@ -501,6 +532,7 @@ function _parse_reexport_flags(exprs::Expr...)
 end
 
 export @republic, @public, @reexport
+@public ispublic, isexported
 @public public_names, exported_names
 
 end

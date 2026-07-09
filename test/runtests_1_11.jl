@@ -1,6 +1,6 @@
 # Tests requiring Julia 1.11+ (native `public` keyword)
 
-using Republic: @republic, public_names, exported_names
+using Republic: @republic, public_names, exported_names, ispublic, isexported
 using Test
 
 # public before @republic reexport=true is respected
@@ -16,7 +16,7 @@ module X_public_before
 end
 @testset "1.11: public before @republic reexport=true is respected" begin
     @test :C in public_names(X_public_before)
-    @test !Base.isexported(X_public_before, :C)  # stayed public, not promoted to export
+    @test !isexported(X_public_before, :C)  # stayed public, not promoted to export
     @test :D in exported_names(X_public_before)
     @test X_public_before.C == 3
     @test X_public_before.D == 4
@@ -62,5 +62,5 @@ end
 @testset "1.11: reexport with native public preserves visibility" begin
     @test :A in exported_names(X_native_reexport)
     @test :B in public_names(X_native_reexport)
-    @test !Base.isexported(X_native_reexport, :B)
+    @test !isexported(X_native_reexport, :B)
 end
