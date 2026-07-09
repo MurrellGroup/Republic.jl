@@ -10,8 +10,8 @@ Republic.jl manages Julia's [`public`](https://docs.julialang.org/en/v1.11/base/
 - **`@public`** — declare names as public API, equivalent to the `public` keyword introduced in 1.11
 - **`@republic`** — forward upstream names into your module's public API
 - **`@reexport`** — shorthand for `@republic reexport=true`
-- **`public_names`** — returns public-but-not-exported names
-- **`exported_names`** — returns exported names
+- **`ispublic`** / **`isexported`** — predicates matching `Base.ispublic` / `Base.isexported` semantics on all versions
+- **`public_names`** / **`exported_names`** — enumerate a module's public-but-not-exported / exported names
 
 The main use case for forwarding is lightweight \*Core or \*Base packages, whose types and functions you want to surface as part of your package's API. This also works for heavier packages whose interfaces you may be implementing, but prefer a qualified `@republic` import to avoid clutter.
 
@@ -26,6 +26,22 @@ using Republic: @public
 ```
 
 `@public` replaces `@compat public` from [Compat.jl](https://github.com/JuliaLang/Compat.jl), tracking declarations for cross-version discovery via `public_names(mod)`.
+
+`@public` behaves like the native keyword on all Julia versions: declaring an already-`export`ed name errors (`cannot declare M.a public; it is already declared exported`), and duplicate declarations are allowed. One asymmetry can't be papered over: on Julia < 1.11, a native `export a` *after* `@public a` won't error, since Republic can't intercept the `export` keyword.
+
+## Reflection
+
+```julia
+using Republic
+
+Republic.ispublic(mod, name)    # public or exported? (Base.ispublic semantics)
+Republic.isexported(mod, name)  # exported? (same as Base.isexported)
+
+public_names(mod)               # public-but-not-exported names
+exported_names(mod)             # exported names
+```
+
+On Julia 1.11+ these defer to `Base`; on earlier versions they fall back to Republic's per-module tracking (populated by `@public` and `@republic`), so downstream code gets one consistent API. Note that exported names count as public, matching `Base.ispublic` — `public_names` and `exported_names` are the non-overlapping partition of that public API.
 
 ## `@republic`: Forwarding Public API
 
@@ -130,7 +146,7 @@ The default behavior of `@republic` changed in v2:
 
 The v1.x default performed wildcard discovery. In v2, the baseline is explicit — use `inherit=:public` to opt into the widest discovery. `reexport=true` no longer implies `inherit`.
 
-The Boolean `inherit=true`/`inherit=false` accepted in v2.0–v2.1 is deprecated; use `inherit=:public` (or omit the flag) instead.
+The Boolean form of `inherit` accepted in v2.0–v2.1 is deprecated: replace `inherit=true` with `inherit=:public`, and drop `inherit=false` entirely (it was already the default).
 
 ## Acknowledgments
 
