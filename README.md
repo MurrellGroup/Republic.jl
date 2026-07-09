@@ -37,8 +37,8 @@ using Republic
 Republic.ispublic(mod, name)    # public or exported? (Base.ispublic semantics)
 Republic.isexported(mod, name)  # exported? (same as Base.isexported)
 
-public_names(mod)               # public-but-not-exported names
-exported_names(mod)             # exported names
+Republic.public_names(mod)               # public-but-not-exported names
+Republic.exported_names(mod)             # exported names
 ```
 
 On Julia 1.11+ these defer to `Base`; on earlier versions they fall back to Republic's per-module tracking (populated by `@public` and `@republic`), so downstream code gets one consistent API. Note that exported names count as public, matching `Base.ispublic` — `public_names` and `exported_names` are the non-overlapping partition of that public API.
