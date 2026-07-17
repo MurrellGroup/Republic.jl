@@ -92,7 +92,7 @@ Marks what the keyword brings in as `public`. No widening.
 
 ### `reexport=true`
 
-Re-exports exported names (instead of marking them `public`). Replaces [Reexport.jl](https://github.com/JuliaLang/Reexport.jl).
+Re-exports exported names (instead of marking them `public`). It is stricter than `@reexport` from [Reexport.jl](https://github.com/JuliaLang/Reexport.jl) in that it doesn't export any names that weren't exported upstream, and still marks public names public unless `republic=false` is also passed. Thus, any new export must be marked explicitly using `export`. Read more about overriding visibility below.
 
 ```julia
 @republic reexport=true using Foo   # exported → re-export
