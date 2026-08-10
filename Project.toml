@@ -1,10 +1,10 @@
 name = "Republic"
 uuid = "27243419-9dde-4721-b67c-fd63626fea7f"
-authors = ["AntonOresten <antonoresten@proton.me> and contributors"]
-version = "2.3.0"
-
-[compat]
-julia = "1.6"
+authors = ["Anton Oresten <antonoresten@proton.me>"]
+version = "2.3.1"
 
 [workspace]
 projects = ["test"]
+
+[compat]
+julia = "1.6"
