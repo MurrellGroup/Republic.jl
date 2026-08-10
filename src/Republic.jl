@@ -3,6 +3,20 @@ module Republic
 # Syntactically unreachable from user code (# prefix)
 const _PUBLIC_NAMES_KEY = Symbol("#Republic_public_names")
 
+"""
+    has_native_public() -> Bool
+
+Whether this Julia version has the native `public` keyword and `publicp`
+binding flag (1.11+). When `true`, Republic defers all reflection to
+`Base` and injects no per-module storage; when `false`, [`@public`](@ref)
+and [`@republic`](@ref) track declarations in a per-module fallback list.
+"""
+has_native_public() = VERSION >= v"1.11.0-DEV.469"
+
+# Pre-1.11 fallback: no `publicp` binding flag exists, so declarations are
+# tracked in a hidden per-module list. It lives in the declaring module —
+# not in Republic — so it serializes into that package's precompile cache.
+# On 1.11+ the native keyword is the only tracking and none of this runs.
 function _ensure_storage(mod::Module)
     isdefined(mod, _PUBLIC_NAMES_KEY) && return
     Core.eval(mod, :(const $(_PUBLIC_NAMES_KEY) = Symbol[]))
@@ -10,7 +24,28 @@ end
 
 function _get_storage(mod::Module)
     isdefined(mod, _PUBLIC_NAMES_KEY) || return Symbol[]
-    Base.invokelatest(getfield, mod, _PUBLIC_NAMES_KEY)::Vector{Symbol}
+    getfield(mod, _PUBLIC_NAMES_KEY)::Vector{Symbol}
+end
+
+function _track_public(mod::Module, syms::Vector{Symbol})
+    _ensure_storage(mod)
+    storage = _get_storage(mod)
+    for sym in syms
+        # Duplicate `public` declarations are legal on 1.11+; keep storage deduped
+        sym in storage || push!(storage, sym)
+    end
+    nothing
+end
+
+# The conflict check the native keyword performs at eval time on 1.12+.
+# Emitted explicitly by `@public` on every version so 1.11 (where native
+# `public` silently tolerates the conflict) and pre-1.11 behave like 1.12.
+function _check_not_exported(mod::Module, syms::Vector{Symbol})
+    for sym in syms
+        Base.isexported(mod, sym) &&
+            error("cannot declare $(nameof(mod)).$sym public; it is already declared exported")
+    end
+    nothing
 end
 
 
@@ -53,25 +88,18 @@ end
 
 Mark names as part of the module's public API.
 
-On Julia 1.11+, emits the native `public` keyword. On all versions, tracks
-the names for cross-version discovery via [`public_names`](@ref).
+On Julia 1.11+, expands to the native `public` keyword. On earlier
+versions, expands to a call that records the names in a hidden per-module
+list read by [`public_names`](@ref) and [`ispublic`](@ref).
 """
 macro public(symbols_expr)
     syms = _get_public_symbols(symbols_expr)
-    mod = __module__
-    for sym in syms
-        # Match Julia 1.11+'s native error (on 1.11+ `Expr(:public, ...)` would
-        # throw this at eval time; throwing here keeps pre-1.11 consistent)
-        Base.isexported(mod, sym) &&
-            error("cannot declare $(nameof(mod)).$sym public; it is already declared exported")
+    check = :($_check_not_exported($__module__, $(QuoteNode(syms))))
+    if has_native_public()
+        Expr(:block, check, esc(Expr(:public, syms...)))
+    else
+        Expr(:block, check, :($_track_public($__module__, $(QuoteNode(syms)))))
     end
-    _ensure_storage(mod)
-    storage = _get_storage(mod)
-    for sym in syms
-        # Duplicate `public` declarations are legal on 1.11+; keep storage deduped
-        sym in storage || push!(storage, sym)
-    end
-    @static VERSION >= v"1.11.0-DEV.469" ? esc(Expr(:public, syms...)) : nothing
 end
 
 
@@ -83,7 +111,7 @@ Whether `name` is part of the public API of `mod` (declared `public` or
 the `public` keyword, falls back to Republic's per-module storage.
 """
 function ispublic(mod::Module, name::Symbol)
-    @static if VERSION >= v"1.11.0-DEV.469"
+    if has_native_public()
         return Base.ispublic(mod, name)
     else
         return Base.isexported(mod, name) || name in _get_storage(mod)
@@ -122,7 +150,7 @@ The result is non-overlapping with [`exported_names`](@ref) — together they
 form the complete public API of a module.
 """
 function public_names(mod::Module)
-    @static if VERSION >= v"1.11.0-DEV.469"
+    if has_native_public()
         filter(n -> ispublic(mod, n) && !isexported(mod, n),
                names(mod; all=true, imported=true))
     else
@@ -422,16 +450,10 @@ function _mark_public(eval, m::Module, nms::Vector{Symbol})
     # Filter out names already exported in m — Julia errors on public-after-export
     filter!(n -> !isexported(m, n), nms)
     isempty(nms) && return
-    # Always track for cross-version discovery (deduped — pre-1.11
-    # `public_names` returns storage directly)
-    _ensure_storage(m)
-    storage = _get_storage(m)
-    for n in nms
-        n in storage || push!(storage, n)
-    end
-    # Emit native keyword on 1.11+
-    @static if VERSION >= v"1.11.0-DEV.469"
+    if has_native_public()
         eval(m, Expr(:public, nms...))
+    else
+        _track_public(m, nms)
     end
 end
 
@@ -534,5 +556,6 @@ end
 export @republic, @public, @reexport
 @public ispublic, isexported
 @public public_names, exported_names
+@public has_native_public
 
 end

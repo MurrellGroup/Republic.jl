@@ -12,6 +12,7 @@ Republic.jl manages Julia's [`public`](https://docs.julialang.org/en/v1.11/base/
 - **`@reexport`** — shorthand for `@republic reexport=true`
 - **`ispublic`** / **`isexported`** — predicates matching `Base.ispublic` / `Base.isexported` semantics on all versions
 - **`public_names`** / **`exported_names`** — enumerate a module's public-but-not-exported / exported names
+- **`has_native_public`** — whether the running Julia has the native `public` keyword (1.11+)
 
 The main use case for forwarding is lightweight \*Core or \*Base packages, whose types and functions you want to surface as part of your package's API. This also works for heavier packages whose interfaces you may be implementing, but prefer a qualified `@republic` import to avoid clutter.
 
@@ -27,7 +28,7 @@ using Republic: @public
 
 `@public` replaces `@compat public` from [Compat.jl](https://github.com/JuliaLang/Compat.jl), tracking declarations for cross-version discovery via `public_names(mod)`.
 
-`@public` behaves like the native keyword on all Julia versions: declaring an already-`export`ed name errors (`cannot declare M.a public; it is already declared exported`), and duplicate declarations are allowed. One asymmetry can't be papered over: on Julia < 1.11, a native `export a` *after* `@public a` won't error, since Republic can't intercept the `export` keyword.
+`@public` gives Julia 1.12+'s native semantics on all versions: declaring an already-`export`ed name errors (`cannot declare M.a public; it is already declared exported`) — a conflict the native keyword on 1.11 silently tolerates — and duplicate declarations are allowed. One asymmetry can't be papered over: on Julia < 1.11, a native `export a` *after* `@public a` won't error, since Republic can't intercept the `export` keyword.
 
 ## Reflection
 
@@ -39,6 +40,8 @@ Republic.isexported(mod, name)  # exported? (same as Base.isexported)
 
 Republic.public_names(mod)               # public-but-not-exported names
 Republic.exported_names(mod)             # exported names
+
+Republic.has_native_public()             # native `public` keyword available? (1.11+)
 ```
 
 On Julia 1.11+ these defer to `Base`; on earlier versions they fall back to Republic's per-module tracking (populated by `@public` and `@republic`), so downstream code gets one consistent API. Note that exported names count as public, matching `Base.ispublic` — `public_names` and `exported_names` are the non-overlapping partition of that public API.

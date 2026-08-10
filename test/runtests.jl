@@ -1,4 +1,4 @@
-using Republic: Republic, @republic, @reexport, @public, public_names, exported_names, ispublic, isexported
+using Republic: Republic, @republic, @reexport, @public, public_names, exported_names, ispublic, isexported, has_native_public
 using Test
 
 #=== @public macro ===#
@@ -54,9 +54,12 @@ end
     catch e
         e
     end
-    @test err isa LoadError
+    # Native `public` (1.11+) and Republic's runtime check (pre-1.11) both
+    # throw at statement execution, so no LoadError wrapping is guaranteed
+    err isa LoadError && (err = err.error)
+    @test err isa ErrorException
     @test occursin("cannot declare PubExpErr.A public; it is already declared exported",
-                   sprint(showerror, err.error))
+                   sprint(showerror, err))
 end
 
 module PubDup
@@ -110,10 +113,25 @@ module Store1
     const S = 1
     @public S
 end
-@testset "storage: gensym key, no user-visible binding" begin
+@testset "storage: pre-1.11 fallback only, no user-visible binding" begin
     @test !isdefined(Store1, :PUBLIC_NAMES)
-    @test isdefined(Store1, Symbol("#Republic_public_names"))
-    @test :S in getfield(Store1, Symbol("#Republic_public_names"))
+    if has_native_public()
+        # Native `publicp` flag is the only tracking — no injected binding
+        @test !isdefined(Store1, Symbol("#Republic_public_names"))
+    else
+        @test isdefined(Store1, Symbol("#Republic_public_names"))
+        @test :S in getfield(Store1, Symbol("#Republic_public_names"))
+    end
+    @test :S in public_names(Store1)
+end
+
+module PureExpand
+    using Republic: @public
+end
+@testset "@public: macro expansion has no side effects" begin
+    Base.macroexpand(PureExpand, :(@public foo))
+    @test !(:foo in public_names(PureExpand))
+    @test !isdefined(PureExpand, Symbol("#Republic_public_names"))
 end
 
 #=== Baseline behavior: marks what you bring in ===#
@@ -607,9 +625,13 @@ module X_track
     using Republic
     @republic using Main.Y_track
 end
-@testset "storage: @republic baseline tracks in storage" begin
+@testset "storage: @republic baseline tracks visibly" begin
     @test :T1 in public_names(X_track)
-    @test isdefined(X_track, Symbol("#Republic_public_names"))
+    if has_native_public()
+        @test !isdefined(X_track, Symbol("#Republic_public_names"))
+    else
+        @test isdefined(X_track, Symbol("#Republic_public_names"))
+    end
 end
 
 #=== Module definition with reexport=true ===#
@@ -1075,6 +1097,6 @@ end
 
 #=== Julia 1.11+ tests (native `public` keyword) ===#
 
-if VERSION >= v"1.11.0-DEV.469"
+if has_native_public()
     include("runtests_1_11.jl")
 end
