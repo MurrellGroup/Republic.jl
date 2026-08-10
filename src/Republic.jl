@@ -95,7 +95,7 @@ list read by [`public_names`](@ref) and [`ispublic`](@ref).
 macro public(symbols_expr)
     syms = _get_public_symbols(symbols_expr)
     check = :($_check_not_exported($__module__, $(QuoteNode(syms))))
-    @static if has_native_public()
+    if has_native_public()
         Expr(:block, check, esc(Expr(:public, syms...)))
     else
         Expr(:block, check, :($_track_public($__module__, $(QuoteNode(syms)))))
@@ -111,7 +111,7 @@ Whether `name` is part of the public API of `mod` (declared `public` or
 the `public` keyword, falls back to Republic's per-module storage.
 """
 function ispublic(mod::Module, name::Symbol)
-    @static if has_native_public()
+    if has_native_public()
         return Base.ispublic(mod, name)
     else
         return Base.isexported(mod, name) || name in _get_storage(mod)
@@ -150,7 +150,7 @@ The result is non-overlapping with [`exported_names`](@ref) — together they
 form the complete public API of a module.
 """
 function public_names(mod::Module)
-    @static if has_native_public()
+    if has_native_public()
         filter(n -> ispublic(mod, n) && !isexported(mod, n),
                names(mod; all=true, imported=true))
     else
@@ -450,7 +450,7 @@ function _mark_public(eval, m::Module, nms::Vector{Symbol})
     # Filter out names already exported in m — Julia errors on public-after-export
     filter!(n -> !isexported(m, n), nms)
     isempty(nms) && return
-    @static if has_native_public()
+    if has_native_public()
         eval(m, Expr(:public, nms...))
     else
         _track_public(m, nms)
