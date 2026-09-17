@@ -53,7 +53,7 @@ _get_public_symbols(sym::Symbol) = [sym]
 
 function _get_public_symbols(expr::Expr)
     if _is_macro_expr(expr)
-        return [expr.args[1]]
+        return [expr.args[begin]]
     end
     expr.head === :tuple ||
         throw(ArgumentError("@public: invalid expression `$expr`. Try `@public foo, bar`"))
@@ -62,7 +62,7 @@ function _get_public_symbols(expr::Expr)
         if arg isa Symbol
             symbols[i] = arg
         elseif _is_macro_expr(arg)
-            symbols[i] = arg.args[1]
+            symbols[i] = arg.args[begin]
         else
             throw(ArgumentError("@public: cannot mark `$arg` as public"))
         end
@@ -74,10 +74,10 @@ function _is_macro_expr(expr)
     expr isa Expr || return false
     Meta.isexpr(expr, :macrocall) || return false
     length(expr.args) == 2 || return false
-    expr.args[1] isa Symbol || return false
-    s = string(expr.args[1])
-    length(s) >= 2 && s[1] == '@' || return false
-    expr.args[2] isa LineNumberNode || return false
+    expr.args[begin] isa Symbol || return false
+    s = string(expr.args[begin])
+    length(s) >= 2 && s[begin] == '@' || return false
+    expr.args[begin+1] isa LineNumberNode || return false
     return true
 end
 
@@ -234,12 +234,12 @@ macro republic(f1::Expr, f2::Expr, f3::Expr, ex::Expr)
 end
 
 function _parse_flag(ex::Expr)
-    ex.head === :(=) && ex.args[1] isa Symbol ||
+    ex.head === :(=) && ex.args[begin] isa Symbol ||
         error("@republic: expected `flag=value`, got `$ex`")
-    name = ex.args[1]::Symbol
+    name = ex.args[begin]::Symbol
     name in (:inherit, :reexport, :republic) ||
         error("@republic: unknown flag `$name`. Expected `inherit`, `reexport`, or `republic`")
-    raw = ex.args[2]
+    raw = ex.args[begin+1]
     value = if raw isa Bool
         raw
     elseif raw isa QuoteNode && raw.value isa Symbol
@@ -319,17 +319,17 @@ function republic(m::Module, inherit::Union{Nothing,Symbol}, reexport::Bool, do_
 
     if ex.head === :module
         # Julia 1.14+ prepends a VersionNumber to module args
-        modname_idx = ex.args[1] isa VersionNumber ? 3 : 2
+        modname_idx = firstindex(ex.args) + (ex.args[begin] isa VersionNumber ? 2 : 1)
         modules = Any[ex.args[modname_idx]]
         ex = Expr(:toplevel, ex, :(using .$(ex.args[modname_idx])))
         # Module form always inherits the full public API
         scope = :public
-    elseif ex.head::Symbol in (:using, :import) && ex.args[1].head === :(:)
+    elseif ex.head::Symbol in (:using, :import) && ex.args[begin].head === :(:)
         # @republic {using, import} Foo: bar, baz, qux as q
         inherit === nothing ||
             error("@republic: `inherit=…` is not valid with selective `using/import X: …`; the scope is the names you listed")
-        path_parts = ex.args[1].args[1].args
-        orig_names, local_names = _extract_names(ex.args[1].args[2:end])
+        path_parts = ex.args[begin].args[begin].args
+        orig_names, local_names = _extract_names(ex.args[begin].args[begin+1:end])
         return Expr(:toplevel, ex,
             :($_forward_syms($eval, $m, $_resolve($m, $(QuoteNode(path_parts))),
                 $(QuoteNode(orig_names)), $(QuoteNode(local_names)), $reexport, $do_republic)))
@@ -339,14 +339,14 @@ function republic(m::Module, inherit::Union{Nothing,Symbol}, reexport::Bool, do_
         out = Expr(:toplevel, ex)
         for arg in ex.args
             if arg.head === :as
-                path = arg.args[1]  # Expr(:., ...)
-                local_name = arg.args[2]
+                path = arg.args[begin]  # Expr(:., ...)
+                local_name = arg.args[begin+1]
             else
                 path = arg
                 local_name = arg.args[end]
             end
             orig_name = path.args[end]
-            path_parts = path.args[1:end-1]
+            path_parts = path.args[begin:end-1]
             if isempty(path_parts)
                 # `import Foo` or `import Foo as Bar` — module import
                 if reexport
@@ -407,8 +407,8 @@ function _extract_names(entries)
     local_names = Symbol[]
     for e in entries
         if e.head === :as
-            push!(orig_names, e.args[1].args[end])
-            push!(local_names, e.args[2])
+            push!(orig_names, e.args[begin].args[end])
+            push!(local_names, e.args[begin+1])
         else
             # Expr(:., :name)
             push!(orig_names, e.args[end])
@@ -419,21 +419,19 @@ function _extract_names(entries)
 end
 
 function resolve_module(m::Module, parts)
-    idx = 1
-    if parts[1] === :.
+    idx = firstindex(parts) + 1
+    if parts[begin] === :.
         # Relative: first dot = current module, each additional = parent
         mod = m
-        idx = 2
-        while idx <= length(parts) && parts[idx] === :.
+        while idx <= lastindex(parts) && parts[idx] === :.
             mod = parentmodule(mod)
             idx += 1
         end
     else
         # Absolute: find loaded root module by name
-        mod = _resolve_root(m, parts[1])
-        idx = 2
+        mod = _resolve_root(m, parts[begin])
     end
-    for i in idx:length(parts)
+    for i in idx:lastindex(parts)
         mod = getfield(mod, parts[i])
     end
     return mod
